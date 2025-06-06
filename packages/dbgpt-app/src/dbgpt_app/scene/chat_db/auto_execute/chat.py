@@ -8,6 +8,7 @@ from dbgpt.util.tracer import root_tracer, trace
 from dbgpt_app.scene import BaseChat, ChatScene
 from dbgpt_app.scene.base_chat import ChatParam
 from dbgpt_app.scene.chat_db.auto_execute.config import ChatWithDBExecuteConfig
+from dbgpt_app.scene.chat_db.auto_execute.sql_validator import SQLValidator
 from dbgpt_serve.core.config import GPTsAppCommonConfig
 from dbgpt_serve.datasource.manages import ConnectorManager
 
@@ -44,6 +45,14 @@ class ChatWithDbAutoExecute(BaseChat):
         ):
             local_db_manager = ConnectorManager.get_instance(self.system_app)
             self.database = local_db_manager.get_connector(self.db_name)
+        
+        # Initialize SQL validator
+        self.sql_validator = SQLValidator(self.database)
+        
+        # Set the validator in the output parser
+        if hasattr(self.prompt_template.output_parser, 'set_sql_validator'):
+            self.prompt_template.output_parser.set_sql_validator(self.sql_validator)
+        
         self.api_call = ApiCall()
 
     @trace()

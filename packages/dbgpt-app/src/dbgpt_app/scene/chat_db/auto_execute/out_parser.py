@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 class DbChatOutputParser(BaseOutputParser):
     def __init__(self, is_stream_out: bool = False, **kwargs):
         super().__init__(is_stream_out=is_stream_out, **kwargs)
+        self._sql_validator = None
+
+    def set_sql_validator(self, validator):
+        """Set the SQL validator instance."""
+        self._sql_validator = validator
 
     def is_sql_statement(self, statement):
         parsed = sqlparse.parse(statement)
@@ -135,6 +140,21 @@ class DbChatOutputParser(BaseOutputParser):
                 raise AppActionException("Can not find sql in response", speak)
 
             if prompt_response.sql:
+                # Validate SQL before execution if validator is available
+                if self._sql_validator:
+                    is_valid, validation_errors = self._sql_validator.validate_sql(prompt_response.sql)
+                    if not is_valid:
+                        error_msg = "SQL validation failed:\n" + "\n".join(validation_errors)
+                        suggestions = self._sql_validator.suggest_corrections(prompt_response.sql, validation_errors)
+                        if suggestions:
+                            error_msg += f"\n\nSuggestions:\n{suggestions}"
+                        
+                        logger.error(f"SQL validation failed: {error_msg}")
+                        raise AppActionException(
+                            "Generated SQL contains invalid column references", 
+                            f"<span style='color:red'>SQL Validation Error:</span><br/>{error_msg.replace(chr(10), '<br/>')}"
+                        )
+                
                 df = data(prompt_response.sql)
                 param["type"] = prompt_response.display
 

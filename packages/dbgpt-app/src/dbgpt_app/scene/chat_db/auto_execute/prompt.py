@@ -24,21 +24,26 @@ Database name:
 Table structure definition:
      {table_info}
 
-Constraint:
-    1.Please understand the user's intention based on the user's question, and use the \
+CRITICAL CONSTRAINTS:
+    1. ONLY use columns that are explicitly listed in the table structure definition above. \
+    DO NOT assume or invent column names that are not shown.
+    2. Please understand the user's intention based on the user's question, and use the \
     given table structure definition to create a grammatically correct {dialect} sql. \
-    If sql is not required, answer the user's question directly.. 
-    2.Always limit the query to a maximum of {top_k} results unless the user specifies \
+    If sql is not required, answer the user's question directly.
+    3. Always limit the query to a maximum of {top_k} results unless the user specifies \
     in the question the specific number of rows of data he wishes to obtain.
-    3.You can only use the tables provided in the table structure information to \
+    4. You can only use the tables provided in the table structure information to \
     generate sql. If you cannot generate sql based on the provided table structure, \
     please say: "The table structure information provided is not enough to generate \
     sql queries." It is prohibited to fabricate information at will.
-    4.Please be careful not to mistake the relationship between tables and columns when\
-     generating SQL.
-    5.Please check the correctness of the SQL and ensure that the query performance is\
+    5. Please be careful not to mistake the relationship between tables and columns when\
+     generating SQL. Double-check that every column referenced in your SQL exists in the \
+     table structure definition.
+    6. Please check the correctness of the SQL and ensure that the query performance is\
      optimized under correct conditions.
-    6.Please choose the best one from the display methods given below for data \
+    7. If the user asks for date-related queries but no date columns are available, \
+    explain that the current table structure doesn't contain date information.
+    8. Please choose the best one from the display methods given below for data \
     rendering, and put the type name into the name parameter value that returns \
     the required format. If you cannot find the most suitable one, use 'Table' as \
     the display method. , the available data display methods are as follows: \
@@ -59,16 +64,18 @@ _DEFAULT_TEMPLATE_ZH = """
 表结构定义:
     {table_info}
 
-约束:
-    1. 请根据用户问题理解用户意图，使用给出表结构定义\
+关键约束:
+    1. 只能使用上述表结构定义中明确列出的列名。不要假设或创造未显示的列名。
+    2. 请根据用户问题理解用户意图，使用给出表结构定义\
     创建一个语法正确的{dialect} sql，如果不需要sql，则直接回答用户问题。
-    2. 除非用户在问题中指定了他希望获得的具体数据行数，否则始终将查询限制为最多\
+    3. 除非用户在问题中指定了他希望获得的具体数据行数，否则始终将查询限制为最多\
      {top_k} 个结果。
-    3. 只能使用表结构信息中提供的表来生成 sql，如果无法根据提供的表结构中生成 sql ，\
-    请说：“提供的表结构信息不足以生成 sql 查询。” 禁止随意捏造信息。
-    4. 请注意生成SQL时不要弄错表和列的关系
-    5. 请检查SQL的正确性，并保证正确的情况下优化查询性能
-    6.请从如下给出的展示方式种选择最优的一种用以进行数据渲染，\
+    4. 只能使用表结构信息中提供的表来生成 sql，如果无法根据提供的表结构中生成 sql ，\
+    请说："提供的表结构信息不足以生成 sql 查询。" 禁止随意捏造信息。
+    5. 请注意生成SQL时不要弄错表和列的关系，仔细检查SQL中引用的每个列都存在于表结构定义中。
+    6. 请检查SQL的正确性，并保证正确的情况下优化查询性能
+    7. 如果用户询问日期相关查询但没有可用的日期列，请解释当前表结构不包含日期信息。
+    8. 请从如下给出的展示方式种选择最优的一种用以进行数据渲染，\
     将类型名称放入返回要求格式的name参数值中，如果找不到最合适的\
     则使用'Table'作为展示方式，可用数据展示方式如下: {display_type}
 用户问题:
