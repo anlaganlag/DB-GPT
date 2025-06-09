@@ -49,9 +49,18 @@ class ChatWithDbAutoExecute(BaseChat):
         # Initialize SQL validator
         self.sql_validator = SQLValidator(self.database)
         
-        # Set the validator in the output parser
-        if hasattr(self.prompt_template.output_parser, 'set_sql_validator'):
-            self.prompt_template.output_parser.set_sql_validator(self.sql_validator)
+        # Enhanced: Set both the validator and connector in the output parser
+        output_parser = self.prompt_template.output_parser
+        if hasattr(output_parser, 'set_sql_validator'):
+            output_parser.set_sql_validator(self.sql_validator)
+            logger.info("SQL validator set in output parser")
+        
+        if hasattr(output_parser, 'set_connector'):
+            output_parser.set_connector(self.database)
+            logger.info("Database connector set in output parser")
+        
+        # Log the enhancement status
+        logger.info(f"Enhanced error handling initialized for database: {self.db_name}")
         
         self.api_call = ApiCall()
 
