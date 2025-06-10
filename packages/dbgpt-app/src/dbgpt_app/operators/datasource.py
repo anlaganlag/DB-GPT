@@ -56,7 +56,7 @@ Constraint:
 User Question:
     {user_input}
 Please think step by step and respond according to the following JSON format:
-    {response}
+    {response_format}
 Ensure the response is correct json and can be parsed by Python json.loads.
 """
 
@@ -82,7 +82,7 @@ _DEFAULT_TEMPLATE_ZH = """你是一个数据库专家.
 用户问题:
     {user_input}
 请一步步思考并按照以下JSON格式回复：
-      {response}
+    {response_format}
 确保返回正确的json并且可以被Python json.loads方法解析.
 """
 _DEFAULT_TEMPLATE = (

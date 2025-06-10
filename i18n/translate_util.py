@@ -78,7 +78,7 @@ msgstr ""
 策略：保持原有格式，不要遗漏任何信息，遵守原意的前提下让内容更通俗易懂、符合{language}表达习惯，但要保留原有格式不变。
 
 返回格式如下：
-{response}
+{response_format}
 
 样例1：
 {example_1_input}

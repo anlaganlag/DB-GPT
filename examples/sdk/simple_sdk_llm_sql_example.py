@@ -76,7 +76,7 @@ Constraint:
 User Question:
     {user_input}
 Please think step by step and respond according to the following JSON format:
-    {response}
+    {response_format}
 Ensure the response is correct json and can be parsed by Python json.loads.
 """
 
@@ -99,7 +99,7 @@ def _join_func(query_dict: Dict, db_summary: List[str]):
     }
     response = json.dumps(default_response, ensure_ascii=False, indent=4)
     query_dict["table_info"] = db_summary
-    query_dict["response"] = response
+    query_dict["response_format"] = response
     return query_dict
 
 

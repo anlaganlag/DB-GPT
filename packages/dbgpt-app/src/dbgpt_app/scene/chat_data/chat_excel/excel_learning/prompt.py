@@ -69,7 +69,7 @@ Please think step by step, ensure that you answer only in JSON format, and ensur
 can be parsed by Python's json.loads() function.
 Response format is as follows:
 ```json
-    {response}
+    {response_format}
 ```
 """
 
@@ -128,7 +128,7 @@ yyyy-MM-dd HH:MM:ss
 请一步一步思考,确保只以JSON格式回答，并且需要能被 Python 的 json.loads() 函数解析。
 响应格式如下:
 ```json
-    {response}
+    {response_format}
 ```
 """
 

@@ -114,7 +114,7 @@ the available data display methods are as follows: {display_type}
 User Question:
     {user_input}
 Please think step by step and respond according to the following JSON format:
-    {response}
+    {response_format}
 Ensure the response is correct json and can be parsed by Python json.loads.
 """
 
@@ -253,7 +253,7 @@ final_result = asyncio.run(
             "dialect": "SQLite",
             "top_k": 1,
             "display_type": display_type,
-            "response": json.dumps(
+            "response_format": json.dumps(
                 RESPONSE_FORMAT_SIMPLE, ensure_ascii=False, indent=4
             ),
         }

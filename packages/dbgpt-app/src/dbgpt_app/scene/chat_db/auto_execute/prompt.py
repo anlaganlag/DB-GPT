@@ -53,11 +53,20 @@ CRITICAL CONSTRAINTS:
     the required format. If you cannot find the most suitable one, use 'Table' as \
     the display method. , the available data display methods are as follows: \
     {display_type}
+    9. If the user explicitly requests "analysis", "report", "summary" or similar \
+    in-depth analysis needs, please provide a detailed analysis report in the \
+    analysis_report field, including:\
+    - summary: Brief summary of analysis results\
+    - key_findings: Key facts and trends discovered from the data\
+    - insights: Business insights and explanations based on the data\
+    - recommendations: Specific recommendations based on analysis results\
+    - methodology: Explanation of analysis methods and logic\
+    If the user is just making a simple data query, analysis_report can be empty or omitted.
     
 User Question:
     {user_input}
 Please think step by step and respond according to the following JSON format:
-    {response}
+    {response_format}
 Ensure the response is correct json and can be parsed by Python json.loads.
 
 """
@@ -71,28 +80,29 @@ _DEFAULT_TEMPLATE_ZH = """
 
 关键约束:
     1. 只能使用上述表结构定义中明确列出的列名。不要假设或创造未显示的列名。
-    2. 请根据用户问题理解用户意图，使用给出表结构定义\
-    创建一个语法正确的{dialect} sql，如果不需要sql，则直接回答用户问题。
-    3. 除非用户在问题中指定了他希望获得的具体数据行数，否则始终将查询限制为最多\
-     {top_k} 个结果。
-    4. 只能使用表结构信息中提供的表来生成 sql。如果无法根据提供的表结构生成 sql，\
-    请分析用户需求并主动提示缺少的信息：\
-    - 分析用户想要实现的具体业务目标\
-    - 识别当前表结构中缺少哪些关键字段或表\
-    - 明确告知用户需要提供什么额外信息\
-    - 建议可能的解决方案或替代查询方式\
-    - 在direct_response中提供详细的指导信息\
-    禁止随意捏造信息。
+    2. 请根据用户问题理解用户意图，使用给出表结构定义    创建一个语法正确的mysql sql，如果不需要sql，则直接回答用户问题。
+    3. 除非用户在问题中指定了他希望获得的具体数据行数，否则始终将查询限制为最多     50 个结果。
+    4. 只能使用表结构信息中提供的表来生成 sql。如果无法根据提供的表结构生成 sql，    请分析用户需求并主动提示缺少的信息：    - 分析用户想要实现的具体业务目标    - 识别当前表结构中缺少哪些关键字段或表    - 明确告知用户需要提供什么额外信息    - 建议可能的解决方案或替代查询方式    - 在direct_response中提供详细的指导信息    禁止随意捏造信息。
     5. 请注意生成SQL时不要弄错表和列的关系，仔细检查SQL中引用的每个列都存在于表结构定义中。
     6. 请检查SQL的正确性，并保证正确的情况下优化查询性能
     7. 如果用户询问日期相关查询但没有可用的日期列，请解释当前表结构不包含日期信息。
-    8. 请从如下给出的展示方式种选择最优的一种用以进行数据渲染，\
-    将类型名称放入返回要求格式的name参数值中，如果找不到最合适的\
-    则使用'Table'作为展示方式，可用数据展示方式如下: {display_type}
+    8. 请从如下给出的展示方式种选择最优的一种用以进行数据渲染，    将类型名称放入返回要求格式的name参数值中，如果找不到最合适的    则使用'Table'作为展示方式，可用数据展示方式如下: {display_type}
+    9. 如果用户明确要求"分析"、"报告"、"总结"或类似的深度分析需求，    请在analysis_report字段中提供详细的分析报告，包括：    - summary: 分析结果的简要总结    - key_findings: 从数据中发现的关键事实和趋势    - insights: 基于数据的业务洞察和解释    - recommendations: 基于分析结果的具体建议    - methodology: 分析方法和逻辑的说明    如果用户只是简单查询数据，analysis_report可以为空或省略。
+    10. **重要：为了提高查询结果的可读性，请遵循以下SQL格式化规则：**
+        - 使用中文别名：为所有字段添加有意义的中文别名，如 `field_name AS '中文名称'`
+        - 格式化数值：
+          * 百分比字段使用 `CONCAT(ROUND(field * 100, 2), '%') AS '百分比'`
+          * 金额字段使用 `CONCAT('¥', FORMAT(amount_field, 2)) AS '金额'`
+          * 日期字段使用 `DATE_FORMAT(date_field, '%Y-%m-%d') AS '日期'`
+        - 避免复杂的JOIN：如果JOIN条件可能导致大量NULL值，优先使用单表查询
+        - 确保字段类型匹配：VARCHAR日期字段与DATE字段比较时要注意格式转换
+        - 按重要性排序：使用 ORDER BY 将最重要的结果排在前面
 用户问题:
     {user_input}
+
+
 请一步步思考并按照以下JSON格式回复：
-      {response}
+    {response_format}
 确保返回正确的json并且可以被Python json.loads方法解析.
 
 """
@@ -105,14 +115,31 @@ PROMPT_SCENE_DEFINE = (
     _PROMPT_SCENE_DEFINE_EN if CFG.LANGUAGE == "en" else _PROMPT_SCENE_DEFINE_ZH
 )
 
-RESPONSE_FORMAT_SIMPLE = {
+RESPONSE_FORMAT_SIMPLE = """
+{
     "thoughts": "thoughts summary to say to user",
-    "direct_response": "If the context is sufficient to answer user, reply directly "
-    "without sql. If information is insufficient, provide detailed guidance on what is needed",
+    "direct_response": "If the context is sufficient to answer user, reply directly without sql. If information is insufficient, provide detailed guidance on what is needed",
     "sql": "SQL Query to run",
     "display_type": "Data display method",
     "missing_info": "If unable to generate SQL, list specific missing information and suggestions",
+    "analysis_report": {
+        "summary": "Brief summary of the analysis results (optional, only when user requests analysis or report)",
+        "key_findings": [
+            "Key finding 1",
+            "Key finding 2"
+        ],
+        "insights": [
+            "Business insight 1",
+            "Business insight 2"
+        ],
+        "recommendations": [
+            "Recommendation 1",
+            "Recommendation 2"
+        ],
+        "methodology": "Explanation of analysis approach and methods used"
+    }
 }
+"""
 
 
 # Temperature is a configuration hyperparameter that controls the randomness of

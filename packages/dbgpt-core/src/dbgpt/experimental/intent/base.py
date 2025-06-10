@@ -21,7 +21,7 @@ and return the complete intent information according to the requirements and out
 4. Ensure that if the user's question does not provide the content defined in the intent slots, the slot values must be empty. Do not fill slots with invalid information such as 'user did not provide'.
 5. If the information extracted from the user's question does not fully correspond to the matched intent slots, generate a new question to ask the user, prompting them to provide the missing slot data.
 
-{response}
+{response_format}
 
 You can refer to the following examples:
 {example}
@@ -42,7 +42,7 @@ _DEFAULT_PROMPT_ZH = """从下面的意图定义中选择一个和用户问题�
 4. 请确保如果用户问题中未提供意图槽位定义的内容，则槽位值必须为空，不要在槽位里填‘用户未提供’这类无效信息。
 5. 如果用户问题内容提取的信息和匹配到的意图槽位无法完全对应，则生成新的问题向用户提问，提示用户补充缺少的槽位数据。
 
-{response}
+{response_format}
 
 可以参考下面的例子：
 {example}
@@ -168,7 +168,7 @@ class BaseIntentDetection(ABC):
         response_schema = self.response_schema
         response_format = self._response_format or response_schema.to_response_format()
         formatted_message = template.format(
-            response=response_format,
+            response_format=response_format,
             example=self._examples,
             intent_definitions=self._intent_definitions,
             history=history_messages,

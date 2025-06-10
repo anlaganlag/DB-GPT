@@ -26,6 +26,7 @@ class SqlAction(NamedTuple):
     display: str
     direct_response: str
     missing_info: str = ""
+    analysis_report: Dict = {}
 
     def to_dict(self) -> Dict[str, Dict]:
         return {
@@ -34,6 +35,7 @@ class SqlAction(NamedTuple):
             "display": self.display,
             "direct_response": self.direct_response,
             "missing_info": self.missing_info,
+            "analysis_report": self.analysis_report,
         }
 
 
@@ -91,7 +93,7 @@ class DbChatOutputParser(BaseOutputParser):
         # Compatible with community pure sql output model
         if self.is_sql_statement(clean_str):
             logger.info("Detected pure SQL statement")
-            return SqlAction(clean_str, "", "", "", "")
+            return SqlAction(clean_str, "", "", "", "", {})
         else:
             try:
                 response = json.loads(clean_str, strict=False)
@@ -101,6 +103,7 @@ class DbChatOutputParser(BaseOutputParser):
                 display = ""
                 resp = ""
                 missing_info = ""
+                analysis_report = {}
                 for key in sorted(response):
                     if key.strip() == "sql":
                         sql = response[key]
@@ -112,12 +115,15 @@ class DbChatOutputParser(BaseOutputParser):
                         resp = response[key]
                     if key.strip() == "missing_info":
                         missing_info = response[key]
+                    if key.strip() == "analysis_report":
+                        analysis_report = response[key] if isinstance(response[key], dict) else {}
                 return SqlAction(
-                    sql=sql, thoughts=thoughts, display=display, direct_response=resp, missing_info=missing_info
+                    sql=sql, thoughts=thoughts, display=display, direct_response=resp, 
+                    missing_info=missing_info, analysis_report=analysis_report
                 )
             except Exception as e:
                 logger.error(f"json load failed: {clean_str}, error: {e}")
-                return SqlAction("", clean_str, "", "", "")
+                return SqlAction("", clean_str, "", "", "", {})
 
     def _safe_parse_vector_data_with_pca(self, df):
         """Enhanced PCA parsing with better error handling."""
@@ -332,11 +338,18 @@ class DbChatOutputParser(BaseOutputParser):
         
         return True, ""
 
-    def parse_view_response(self, prompt_response, speak, data, chart_param):
+    def parse_view_response(self, speak, data, prompt_response=None):
         """
         Parse view response with enhanced error handling and SQL fixing
         解析视图响应，增强错误处理和SQL修复
+        
+        Args:
+            speak: AI response text
+            data: Query result data or callable
+            prompt_response: Parsed prompt response (optional)
         """
+        logger.info(f"DEBUG parse_view_response called with speak: {speak}")
+        logger.info(f"DEBUG parse_view_response called with data type: {type(data)}")
         logger.info(f"DEBUG parse_view_response called with prompt_response type: {type(prompt_response)}")
         
         if hasattr(prompt_response, 'direct_response'):
@@ -345,10 +358,23 @@ class DbChatOutputParser(BaseOutputParser):
             logger.info(f"DEBUG prompt_response.sql: {prompt_response.sql}")
         
         try:
-            if hasattr(prompt_response, 'direct_response') and prompt_response.direct_response:
+            # Check if we have analysis report - if so, we should execute SQL and format the full report
+            has_analysis_report = (hasattr(prompt_response, 'analysis_report') and 
+                                 prompt_response.analysis_report and 
+                                 isinstance(prompt_response.analysis_report, dict) and
+                                 any(prompt_response.analysis_report.values()))
+            
+            # Only return direct_response if there's no SQL and no analysis report
+            if (hasattr(prompt_response, 'direct_response') and prompt_response.direct_response and
+                not has_analysis_report and 
+                (not hasattr(prompt_response, 'sql') or not prompt_response.sql)):
                 return prompt_response.direct_response
             
             if not hasattr(prompt_response, 'sql') or not prompt_response.sql:
+                # If we have analysis report but no SQL, format the report without data
+                if has_analysis_report:
+                    return self._format_analysis_report_only(prompt_response.analysis_report)
+                
                 error_msg = "AI模型未生成SQL查询，请尝试重新描述您的需求"
                 logger.error(f"parse_view_response error: {error_msg}")
                 return f"❌ 查询失败: {error_msg}"
@@ -381,7 +407,13 @@ class DbChatOutputParser(BaseOutputParser):
                 result = data(sql_to_execute)
                 
                 if result is None or result.empty:
-                    return f"📊 查询执行成功，但没有找到匹配的数据。请尝试调整查询条件。{fix_info}"
+                    # Even with empty results, show analysis report if available
+                    if has_analysis_report:
+                        empty_result_msg = "📊 查询执行成功，但没有找到匹配的数据。请尝试调整查询条件。\n\n"
+                        analysis_report_content = self._format_analysis_report_only(prompt_response.analysis_report)
+                        return empty_result_msg + analysis_report_content + fix_info
+                    else:
+                        return f"📊 查询执行成功，但没有找到匹配的数据。请尝试调整查询条件。{fix_info}"
                 
                 # Format result for display
                 view_content = self._format_result_for_display(result, prompt_response)
@@ -432,8 +464,8 @@ class DbChatOutputParser(BaseOutputParser):
 
     def _format_result_for_display(self, result, prompt_response):
         """
-        Format query result for display
-        格式化查询结果用于显示
+        Format query result for display with analysis report
+        格式化查询结果用于显示，包含分析报告
         """
         try:
             # Convert DataFrame to a user-friendly format
@@ -447,8 +479,78 @@ class DbChatOutputParser(BaseOutputParser):
             if len(result) > 50:
                 formatted_result += f"\n\n... 显示前50条记录，共{len(result)}条记录"
             
+            # Add analysis report if available
+            if hasattr(prompt_response, 'analysis_report') and prompt_response.analysis_report:
+                report = prompt_response.analysis_report
+                formatted_result += "\n\n" + "="*60 + "\n"
+                formatted_result += "📋 **分析报告**\n"
+                formatted_result += "="*60 + "\n\n"
+                
+                if report.get('summary'):
+                    formatted_result += f"**📝 分析摘要:**\n{report['summary']}\n\n"
+                
+                if report.get('key_findings') and isinstance(report['key_findings'], list):
+                    formatted_result += "**🔍 关键发现:**\n"
+                    for i, finding in enumerate(report['key_findings'], 1):
+                        formatted_result += f"{i}. {finding}\n"
+                    formatted_result += "\n"
+                
+                if report.get('insights') and isinstance(report['insights'], list):
+                    formatted_result += "**💡 业务洞察:**\n"
+                    for i, insight in enumerate(report['insights'], 1):
+                        formatted_result += f"{i}. {insight}\n"
+                    formatted_result += "\n"
+                
+                if report.get('recommendations') and isinstance(report['recommendations'], list):
+                    formatted_result += "**🎯 建议措施:**\n"
+                    for i, rec in enumerate(report['recommendations'], 1):
+                        formatted_result += f"{i}. {rec}\n"
+                    formatted_result += "\n"
+                
+                if report.get('methodology'):
+                    formatted_result += f"**🔬 分析方法:**\n{report['methodology']}\n\n"
+            
             return formatted_result
             
         except Exception as e:
             logger.error(f"Error formatting result: {str(e)}")
             return f"✅ 查询执行成功，但结果格式化失败: {str(e)}"
+
+    def _format_analysis_report_only(self, analysis_report):
+        """
+        Format analysis report without query data
+        仅格式化分析报告（无查询数据）
+        """
+        try:
+            formatted_result = "📋 **分析报告**\n"
+            formatted_result += "="*60 + "\n\n"
+            
+            if analysis_report.get('summary'):
+                formatted_result += f"**📝 分析摘要:**\n{analysis_report['summary']}\n\n"
+            
+            if analysis_report.get('key_findings') and isinstance(analysis_report['key_findings'], list):
+                formatted_result += "**🔍 关键发现:**\n"
+                for i, finding in enumerate(analysis_report['key_findings'], 1):
+                    formatted_result += f"{i}. {finding}\n"
+                formatted_result += "\n"
+            
+            if analysis_report.get('insights') and isinstance(analysis_report['insights'], list):
+                formatted_result += "**💡 业务洞察:**\n"
+                for i, insight in enumerate(analysis_report['insights'], 1):
+                    formatted_result += f"{i}. {insight}\n"
+                formatted_result += "\n"
+            
+            if analysis_report.get('recommendations') and isinstance(analysis_report['recommendations'], list):
+                formatted_result += "**🎯 建议措施:**\n"
+                for i, rec in enumerate(analysis_report['recommendations'], 1):
+                    formatted_result += f"{i}. {rec}\n"
+                formatted_result += "\n"
+            
+            if analysis_report.get('methodology'):
+                formatted_result += f"**🔬 分析方法:**\n{analysis_report['methodology']}\n\n"
+            
+            return formatted_result
+            
+        except Exception as e:
+            logger.error(f"Error formatting analysis report: {str(e)}")
+            return f"📋 分析报告格式化失败: {str(e)}"
