@@ -21,7 +21,7 @@ services:
     image: eosphorosai/dbgpt-openai:latest
     command: dbgpt start webserver --config /app/configs/dbgpt-overdue-analysis.toml
     environment:
-      - SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY}
+      - SILICONFLOW_API_KEY=sk-stwdcstqnkcztrsqsrmosrcpekiacrualyzzvsgfmzjvuurv
       - MYSQL_PASSWORD=aa123456
       - MYSQL_HOST=db
       - MYSQL_PORT=3306

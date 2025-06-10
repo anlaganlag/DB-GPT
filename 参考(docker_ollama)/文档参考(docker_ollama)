@@ -1,0 +1,19 @@
+# 安装Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# 下载模型
+ollama pull qwen2.5:7b
+
+# 修改配置文件使用ollama
+
+--------------------------------------------------------------
+Docker容器日志:
+docker logs db-gpt-webserver-1 --tail 50
+docker logs db-gpt-webserver-1 -f  # 实时查看
+
+容器内部日志:
+docker exec -it db-gpt-webserver-1 ls /app/logs/
+docker exec -it db-gpt-webserver-1 tail -f /app/logs/dbgpt.log
+
+重启容器
+docker compose restart webserver

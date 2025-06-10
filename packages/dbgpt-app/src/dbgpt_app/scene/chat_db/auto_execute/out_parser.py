@@ -2,16 +2,20 @@ import json
 import logging
 import xml.etree.ElementTree as ET
 from typing import Dict, NamedTuple, Optional
+import re
 
 import numpy as np
 import pandas as pd
 import sqlparse
+from sqlalchemy.exc import SQLAlchemyError
+import pymysql
 
 from dbgpt._private.config import Config
 from dbgpt.core.interface.output_parser import BaseOutputParser
 from dbgpt.util.json_utils import serialize
 
 from ...exceptions import AppActionException
+from .sql_fixer import create_sql_fixer
 
 CFG = Config()
 
@@ -21,6 +25,7 @@ class SqlAction(NamedTuple):
     thoughts: Dict
     display: str
     direct_response: str
+    missing_info: str = ""
 
     def to_dict(self) -> Dict[str, Dict]:
         return {
@@ -28,6 +33,7 @@ class SqlAction(NamedTuple):
             "thoughts": self.thoughts,
             "display": self.display,
             "direct_response": self.direct_response,
+            "missing_info": self.missing_info,
         }
 
 
@@ -43,6 +49,7 @@ class DbChatOutputParser(BaseOutputParser):
         # Auto-initialize SQL validator if connector is provided
         if connector:
             self._initialize_sql_validator()
+        self.sql_fixer = create_sql_fixer()
 
     def _initialize_sql_validator(self):
         """Initialize SQL validator with the provided connector."""
@@ -76,17 +83,24 @@ class DbChatOutputParser(BaseOutputParser):
 
     def parse_prompt_response(self, model_out_text):
         clean_str = super().parse_prompt_response(model_out_text)
-        logger.info(f"clean prompt response: {clean_str}")
+        logger.info(f"=== DEBUG: parse_prompt_response ===")
+        logger.info(f"Original model_out_text: {model_out_text}")
+        logger.info(f"Clean prompt response: {clean_str}")
+        logger.info(f"=== END DEBUG ===")
+        
         # Compatible with community pure sql output model
         if self.is_sql_statement(clean_str):
-            return SqlAction(clean_str, "", "", "")
+            logger.info("Detected pure SQL statement")
+            return SqlAction(clean_str, "", "", "", "")
         else:
             try:
                 response = json.loads(clean_str, strict=False)
+                logger.info(f"Successfully parsed JSON response: {response}")
                 sql = ""
                 thoughts = dict
                 display = ""
                 resp = ""
+                missing_info = ""
                 for key in sorted(response):
                     if key.strip() == "sql":
                         sql = response[key]
@@ -96,12 +110,14 @@ class DbChatOutputParser(BaseOutputParser):
                         display = response[key]
                     if key.strip() == "direct_response":
                         resp = response[key]
+                    if key.strip() == "missing_info":
+                        missing_info = response[key]
                 return SqlAction(
-                    sql=sql, thoughts=thoughts, display=display, direct_response=resp
+                    sql=sql, thoughts=thoughts, display=display, direct_response=resp, missing_info=missing_info
                 )
             except Exception as e:
                 logger.error(f"json load failed: {clean_str}, error: {e}")
-                return SqlAction("", clean_str, "", "")
+                return SqlAction("", clean_str, "", "", "")
 
     def _safe_parse_vector_data_with_pca(self, df):
         """Enhanced PCA parsing with better error handling."""
@@ -258,151 +274,181 @@ class DbChatOutputParser(BaseOutputParser):
         
         return detailed_msg
 
-    def parse_view_response(self, speak, data, prompt_response) -> str:
-        param = {}
-        api_call_element = ET.Element("chart-view")
-        err_msg = None
-        success = False
-        detailed_error_info = {}
+    def format_sql_error_for_user(self, error: Exception, sql: str = None) -> str:
+        """
+        Format SQL error for user-friendly display
+        将SQL错误格式化为用户友好的信息
+        """
+        error_msg = str(error)
+        
+        # Common SQL error patterns and their user-friendly explanations
+        error_patterns = {
+            r"Unknown column '([^']+)' in 'field list'": "字段 '{0}' 不存在，请检查字段名是否正确",
+            r"Table '([^']+)' doesn't exist": "表 '{0}' 不存在，请检查表名是否正确", 
+            r"You have an error in your SQL syntax": "SQL语法错误，请检查查询语句",
+            r"Duplicate column name '([^']+)'": "重复的字段名 '{0}'",
+            r"Unknown table '([^']+)'": "未知的表 '{0}'",
+            r"Column '([^']+)' in field list is ambiguous": "字段 '{0}' 存在歧义，需要指定表名",
+        }
+        
+        # Try to match common patterns
+        for pattern, template in error_patterns.items():
+            match = re.search(pattern, error_msg)
+            if match:
+                try:
+                    return template.format(*match.groups())
+                except:
+                    return template
+        
+        # If no pattern matches, return a generic but informative message
+        if "1054" in error_msg:
+            return f"字段引用错误: {error_msg}"
+        elif "1146" in error_msg:
+            return f"表不存在错误: {error_msg}"
+        elif "1064" in error_msg:
+            return f"SQL语法错误: {error_msg}"
+        else:
+            return f"数据库查询错误: {error_msg}"
+
+    def validate_sql_basic(self, sql: str) -> tuple[bool, str]:
+        """
+        Basic SQL validation
+        基本的SQL验证
+        """
+        if not sql or not sql.strip():
+            return False, "SQL查询为空"
+        
+        sql_upper = sql.upper().strip()
+        
+        # Check for dangerous operations (basic security)
+        dangerous_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER', 'CREATE', 'INSERT', 'UPDATE']
+        for keyword in dangerous_keywords:
+            if keyword in sql_upper and not sql_upper.startswith('SELECT'):
+                return False, f"不允许执行 {keyword} 操作"
+        
+        # Check for basic SQL structure
+        if not sql_upper.startswith('SELECT') and not sql_upper.startswith('WITH'):
+            return False, "只支持 SELECT 查询"
+        
+        return True, ""
+
+    def parse_view_response(self, prompt_response, speak, data, chart_param):
+        """
+        Parse view response with enhanced error handling and SQL fixing
+        解析视图响应，增强错误处理和SQL修复
+        """
+        logger.info(f"DEBUG parse_view_response called with prompt_response type: {type(prompt_response)}")
+        
+        if hasattr(prompt_response, 'direct_response'):
+            logger.info(f"DEBUG prompt_response.direct_response: {prompt_response.direct_response}")
+        if hasattr(prompt_response, 'sql'):
+            logger.info(f"DEBUG prompt_response.sql: {prompt_response.sql}")
         
         try:
-            if (
-                not prompt_response.direct_response
-                or len(prompt_response.direct_response) <= 0
-            ) and (not prompt_response.sql or len(prompt_response.sql) <= 0):
-                raise AppActionException("Can not find sql in response", speak)
-
-            if prompt_response.sql:
-                logger.info(f"Processing SQL: {prompt_response.sql}")
+            if hasattr(prompt_response, 'direct_response') and prompt_response.direct_response:
+                return prompt_response.direct_response
+            
+            if not hasattr(prompt_response, 'sql') or not prompt_response.sql:
+                error_msg = "AI模型未生成SQL查询，请尝试重新描述您的需求"
+                logger.error(f"parse_view_response error: {error_msg}")
+                return f"❌ 查询失败: {error_msg}"
+            
+            original_sql = prompt_response.sql.strip()
+            logger.info(f"DEBUG Original SQL: {original_sql}")
+            
+            # Apply SQL fixes
+            fixed_sql, fixes_applied = self.sql_fixer.fix_sql(original_sql)
+            
+            if fixes_applied:
+                logger.info(f"Applied SQL fixes: {fixes_applied}")
+                sql_to_execute = fixed_sql
+                fix_info = f"\n🔧 自动修复: {', '.join(fixes_applied)}"
+            else:
+                sql_to_execute = original_sql
+                fix_info = ""
+            
+            logger.info(f"DEBUG SQL to execute: {sql_to_execute}")
+            
+            # Basic SQL validation
+            is_valid, validation_error = self.validate_sql_basic(sql_to_execute)
+            if not is_valid:
+                error_msg = f"SQL验证失败: {validation_error}"
+                logger.error(f"SQL validation failed: {error_msg}")
+                return f"❌ 查询失败: {error_msg}"
+            
+            # Execute SQL with enhanced error handling
+            try:
+                result = data(sql_to_execute)
                 
-                # Enhanced SQL validation
-                if self._sql_validator:
+                if result is None or result.empty:
+                    return f"📊 查询执行成功，但没有找到匹配的数据。请尝试调整查询条件。{fix_info}"
+                
+                # Format result for display
+                view_content = self._format_result_for_display(result, prompt_response)
+                return view_content + fix_info
+                
+            except (SQLAlchemyError, pymysql.Error, Exception) as sql_error:
+                # If fixed SQL still fails, try the original SQL
+                if fixes_applied:
+                    logger.info("Fixed SQL failed, trying original SQL...")
                     try:
-                        is_valid, validation_errors = self._sql_validator.validate_sql(prompt_response.sql)
-                        if not is_valid:
-                            error_msg = "SQL validation failed:\n" + "\n".join(validation_errors)
-                            suggestions = self._sql_validator.suggest_corrections(prompt_response.sql, validation_errors)
-                            if suggestions:
-                                error_msg += f"\n\nSuggestions:\n{suggestions}"
-                            
-                            logger.error(f"SQL validation failed: {error_msg}")
-                            detailed_error = self._create_detailed_error_message(
-                                Exception(error_msg), 
-                                prompt_response.sql, 
-                                "SQL Validation"
-                            )
-                            raise AppActionException(
-                                "Generated SQL contains invalid column references", 
-                                detailed_error
-                            )
-                    except Exception as validation_error:
-                        logger.warning(f"SQL validation error (continuing anyway): {validation_error}")
-                else:
-                    logger.warning("SQL validator not available - skipping validation")
+                        result = data(original_sql)
+                        if result is not None and not result.empty:
+                            view_content = self._format_result_for_display(result, prompt_response)
+                            return view_content + "\n⚠️ 注意: 使用了原始SQL查询（自动修复失败）"
+                    except Exception:
+                        pass  # Continue with error handling below
                 
-                # Execute SQL with enhanced error handling
-                try:
-                    df = data(prompt_response.sql)
-                    logger.info(f"SQL executed successfully, got {len(df)} rows")
-                except Exception as sql_error:
-                    logger.error(f"SQL execution failed: {sql_error}")
-                    detailed_error = self._create_detailed_error_message(
-                        sql_error, 
-                        prompt_response.sql, 
-                        "SQL Execution"
-                    )
-                    raise AppActionException("SQL execution failed", detailed_error)
+                # Enhanced SQL error handling
+                user_friendly_error = self.format_sql_error_for_user(sql_error, sql_to_execute)
+                technical_error = str(sql_error)
                 
-                param["type"] = prompt_response.display
+                logger.error(f"SQL execution failed: {technical_error}")
+                logger.error(f"SQL that failed: {sql_to_execute}")
+                
+                # Return detailed error information
+                error_response = f"""❌ 数据库查询失败
 
-                # Enhanced vector processing
-                if param["type"] == "response_vector_chart":
-                    try:
-                        df, visualizable = self._safe_parse_vector_data_with_pca(df)
-                        param["type"] = (
-                            "response_scatter_chart" if visualizable else "response_table"
-                        )
-                        if visualizable:
-                            logger.info("Vector data successfully processed with PCA")
-                        else:
-                            logger.info("Vector data processing failed, falling back to table view")
-                    except Exception as pca_error:
-                        logger.error(f"PCA processing failed: {pca_error}")
-                        param["type"] = "response_table"
+🔍 错误原因: {user_friendly_error}
 
-                param["sql"] = prompt_response.sql
+📝 执行的SQL:
+```sql
+{sql_to_execute}
+```
+
+🔧 技术详情: {technical_error}
+
+💡 建议: 请尝试简化查询或检查字段名是否正确"""
+
+                if fixes_applied:
+                    error_response += f"\n\n🔧 已尝试的修复: {', '.join(fixes_applied)}"
                 
-                # Enhanced JSON conversion with better error handling
-                try:
-                    param["data"] = json.loads(
-                        df.to_json(orient="records", date_format="iso", date_unit="s")
-                    )
-                    logger.info(f"Data conversion successful: {len(param['data'])} records")
-                except Exception as json_error:
-                    logger.error(f"JSON conversion failed: {json_error}")
-                    # Try alternative conversion methods
-                    try:
-                        # Convert problematic columns to strings
-                        df_clean = df.copy()
-                        for col in df_clean.columns:
-                            if df_clean[col].dtype == 'object':
-                                df_clean[col] = df_clean[col].astype(str)
-                        param["data"] = json.loads(
-                            df_clean.to_json(orient="records", date_format="iso", date_unit="s")
-                        )
-                        logger.info("Data conversion successful with string conversion fallback")
-                    except Exception as fallback_error:
-                        logger.error(f"Fallback JSON conversion also failed: {fallback_error}")
-                        detailed_error = self._create_detailed_error_message(
-                            fallback_error, 
-                            prompt_response.sql, 
-                            "Data Conversion"
-                        )
-                        raise AppActionException("Data conversion failed", detailed_error)
+                return error_response
                 
-                view_json_str = json.dumps(param, default=serialize, ensure_ascii=False)
-                success = True
-                
-            elif prompt_response.direct_response:
-                speak = prompt_response.direct_response
-                view_json_str = ""
-                success = True
-                
-        except AppActionException:
-            # Re-raise AppActionException as-is
-            raise
         except Exception as e:
-            logger.error(f"parse_view_response error: {e}", exc_info=True)
-            
-            # Create detailed error information
-            detailed_error_info = {
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-                "sql": getattr(prompt_response, 'sql', ''),
-                "context": "View Response Parsing"
-            }
-            
-            err_param = {
-                "sql": f"{prompt_response.sql}",
-                "type": "response_table",
-                "data": [],
-            }
-            err_msg = self._create_detailed_error_message(
-                e, 
-                getattr(prompt_response, 'sql', ''), 
-                "View Response Parsing"
-            )
-            view_json_str = json.dumps(err_param, default=serialize, ensure_ascii=False)
+            # Catch-all for any other errors
+            logger.error(f"Unexpected error in parse_view_response: {str(e)}")
+            return f"❌ 系统错误: {str(e)}"
 
-        # Generate final result
-        if len(view_json_str) != 0:
-            api_call_element.set("content", view_json_str)
-            result = ET.tostring(api_call_element, encoding="utf-8")
-        else:
-            result = b""
+    def _format_result_for_display(self, result, prompt_response):
+        """
+        Format query result for display
+        格式化查询结果用于显示
+        """
+        try:
+            # Convert DataFrame to a user-friendly format
+            if len(result) == 0:
+                return "📊 查询执行成功，但没有找到匹配的数据。"
             
-        if not success:
-            view_content = f'{speak}\n{err_msg}\n{result.decode("utf-8")}'
-            raise AppActionException("Generate view content failed", view_content)
-        else:
-            return speak + "\n" + result.decode("utf-8")
+            # Create a formatted table
+            formatted_result = "📊 查询结果:\n\n"
+            formatted_result += result.to_string(index=False, max_rows=50)
+            
+            if len(result) > 50:
+                formatted_result += f"\n\n... 显示前50条记录，共{len(result)}条记录"
+            
+            return formatted_result
+            
+        except Exception as e:
+            logger.error(f"Error formatting result: {str(e)}")
+            return f"✅ 查询执行成功，但结果格式化失败: {str(e)}"

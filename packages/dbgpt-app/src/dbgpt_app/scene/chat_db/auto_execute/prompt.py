@@ -34,8 +34,13 @@ CRITICAL CONSTRAINTS:
     in the question the specific number of rows of data he wishes to obtain.
     4. You can only use the tables provided in the table structure information to \
     generate sql. If you cannot generate sql based on the provided table structure, \
-    please say: "The table structure information provided is not enough to generate \
-    sql queries." It is prohibited to fabricate information at will.
+    please analyze user requirements and proactively suggest missing information:\
+    - Analyze the specific business goal the user wants to achieve\
+    - Identify which key fields or tables are missing from the current table structure\
+    - Clearly inform the user what additional information is needed\
+    - Suggest possible solutions or alternative query approaches\
+    - Provide detailed guidance in the direct_response field\
+    It is prohibited to fabricate information at will.
     5. Please be careful not to mistake the relationship between tables and columns when\
      generating SQL. Double-check that every column referenced in your SQL exists in the \
      table structure definition.
@@ -70,8 +75,14 @@ _DEFAULT_TEMPLATE_ZH = """
     创建一个语法正确的{dialect} sql，如果不需要sql，则直接回答用户问题。
     3. 除非用户在问题中指定了他希望获得的具体数据行数，否则始终将查询限制为最多\
      {top_k} 个结果。
-    4. 只能使用表结构信息中提供的表来生成 sql，如果无法根据提供的表结构中生成 sql ，\
-    请说："提供的表结构信息不足以生成 sql 查询。" 禁止随意捏造信息。
+    4. 只能使用表结构信息中提供的表来生成 sql。如果无法根据提供的表结构生成 sql，\
+    请分析用户需求并主动提示缺少的信息：\
+    - 分析用户想要实现的具体业务目标\
+    - 识别当前表结构中缺少哪些关键字段或表\
+    - 明确告知用户需要提供什么额外信息\
+    - 建议可能的解决方案或替代查询方式\
+    - 在direct_response中提供详细的指导信息\
+    禁止随意捏造信息。
     5. 请注意生成SQL时不要弄错表和列的关系，仔细检查SQL中引用的每个列都存在于表结构定义中。
     6. 请检查SQL的正确性，并保证正确的情况下优化查询性能
     7. 如果用户询问日期相关查询但没有可用的日期列，请解释当前表结构不包含日期信息。
@@ -97,9 +108,10 @@ PROMPT_SCENE_DEFINE = (
 RESPONSE_FORMAT_SIMPLE = {
     "thoughts": "thoughts summary to say to user",
     "direct_response": "If the context is sufficient to answer user, reply directly "
-    "without sql",
+    "without sql. If information is insufficient, provide detailed guidance on what is needed",
     "sql": "SQL Query to run",
     "display_type": "Data display method",
+    "missing_info": "If unable to generate SQL, list specific missing information and suggestions",
 }
 
 

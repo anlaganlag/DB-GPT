@@ -166,3 +166,255 @@ export MCP_DEBUG=true
 ---
 
 **恭喜！您现在拥有了一个更智能、更可靠的DB-GPT系统！** 🎉 
+
+## 快速修复清单
+
+### 🚨 紧急修复："Generate view content failed"
+```bash
+# 1. 立即重启服务
+docker-compose restart webserver
+
+# 2. 检查配置是否生效
+docker logs db-gpt-webserver-1 --tail 10
+
+# 3. 使用具体查询替代模糊查询
+# ❌ 错误：帮我分析逾期率
+# ✅ 正确：查询orders表中status字段的分布情况，显示每种状态的订单数量
+```
+
+## 错误类型分类
+
+### 1. JSON解析错误
+**错误信息**: `json load failed`, `Can not find sql in response`
+
+**根本原因**: 
+- AI模型返回了多个JSON对象
+- 模型temperature过高导致输出不稳定
+- 查询描述过于模糊
+
+**解决方案**:
+```toml
+# 在配置文件中添加稳定性参数
+temperature = 0.3
+max_tokens = 2048
+top_p = 0.9
+context_length = 4096
+```
+
+### 2. 数据库连接错误
+**错误信息**: `Connection refused`, `Access denied`
+
+**解决方案**:
+```bash
+# 检查数据库状态
+docker ps | grep mysql
+
+# 重启数据库服务
+docker-compose restart db
+
+# 验证连接
+docker exec -it db-gpt-db-1 mysql -u root -paa123456 -e "SHOW DATABASES;"
+```
+
+### 3. 模型上下文长度错误
+**错误信息**: `maximum context length is 4096 tokens`
+
+**解决方案**:
+- 分解复杂查询为多个简单查询
+- 使用更大上下文的模型
+- 优化查询描述长度
+
+## 预防性措施
+
+### 1. 查询最佳实践
+
+#### ✅ 推荐的查询格式
+```
+请查询[具体表名]表中的[具体字段]，
+条件：[明确的筛选条件]，
+分组：[分组字段]，
+排序：[排序规则]，
+限制：[结果数量]
+```
+
+#### ✅ 具体示例
+```
+请查询orders表中的id, user_id, status, total_amount字段，
+条件：order_date >= '2024-01-01'，
+分组：按status分组，
+排序：按订单数量降序，
+限制：50条记录
+```
+
+### 2. 分步查询策略
+
+#### 第一步：探索数据结构
+```
+请显示test_db数据库中所有表的名称和基本信息
+```
+
+#### 第二步：查看表结构
+```
+请显示orders表的字段结构，包括字段名、类型和注释
+```
+
+#### 第三步：基础数据查询
+```
+请查询orders表的前10条记录，显示所有字段
+```
+
+#### 第四步：业务分析
+```
+基于orders表，统计每种status的订单数量和总金额
+```
+
+### 3. 错误监控脚本
+
+创建监控脚本 `monitor_dbgpt.sh`:
+```bash
+#!/bin/bash
+# DB-GPT 健康检查脚本
+
+echo "=== DB-GPT 健康检查 ==="
+
+# 检查容器状态
+echo "1. 检查容器状态:"
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep db-gpt
+
+# 检查Web服务
+echo "2. 检查Web服务:"
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5670 || echo "Web服务异常"
+
+# 检查数据库连接
+echo "3. 检查数据库连接:"
+docker exec db-gpt-db-1 mysql -u root -paa123456 -e "SELECT 1" 2>/dev/null && echo "数据库连接正常" || echo "数据库连接异常"
+
+# 检查最近错误
+echo "4. 最近错误日志:"
+docker logs db-gpt-webserver-1 --tail 5 | grep -i error || echo "无错误日志"
+```
+
+## 故障排除流程
+
+### Level 1: 基础检查
+```bash
+# 1. 检查所有服务状态
+docker-compose ps
+
+# 2. 检查端口占用
+netstat -an | findstr :5670
+netstat -an | findstr :3307
+
+# 3. 检查磁盘空间
+docker system df
+```
+
+### Level 2: 服务重启
+```bash
+# 1. 重启特定服务
+docker-compose restart webserver
+
+# 2. 重启所有服务
+docker-compose restart
+
+# 3. 完全重建（谨慎使用）
+docker-compose down
+docker-compose up -d
+```
+
+### Level 3: 深度诊断
+```bash
+# 1. 查看详细日志
+docker logs db-gpt-webserver-1 --tail 100
+
+# 2. 进入容器调试
+docker exec -it db-gpt-webserver-1 bash
+
+# 3. 检查配置文件
+docker exec db-gpt-webserver-1 cat /app/configs/dbgpt-proxy-siliconflow-mysql.toml
+```
+
+## 配置优化建议
+
+### 1. 生产环境配置
+```toml
+# 稳定性优先配置
+[models.llms]
+temperature = 0.2  # 更低的温度提高稳定性
+max_tokens = 1024  # 限制输出长度
+top_p = 0.8        # 更保守的采样
+context_length = 4096
+```
+
+### 2. 开发环境配置
+```toml
+# 灵活性优先配置
+[models.llms]
+temperature = 0.5  # 适中的创造性
+max_tokens = 2048  # 更长的输出
+top_p = 0.9        # 更多样的输出
+context_length = 8192
+```
+
+## 常见问题FAQ
+
+### Q1: 为什么查询总是失败？
+**A**: 检查查询描述是否具体明确，避免使用"分析"、"帮我"等模糊词汇。
+
+### Q2: 如何提高查询成功率？
+**A**: 
+1. 降低模型temperature到0.3以下
+2. 使用具体的表名和字段名
+3. 分步骤进行复杂查询
+
+### Q3: 数据库连接经常断开怎么办？
+**A**: 
+1. 检查Docker容器内存限制
+2. 增加数据库连接超时时间
+3. 使用连接池配置
+
+### Q4: 如何切换到更稳定的模型？
+**A**: 修改配置文件中的model_name，推荐使用较小的模型如Qwen2.5-7B-Instruct。
+
+## 应急联系方式
+
+### 技术支持清单
+1. **配置文件备份**: `configs/` 目录下的所有 `.toml` 文件
+2. **日志收集**: `docker logs db-gpt-webserver-1 > error.log`
+3. **环境信息**: `docker-compose version && docker version`
+
+### 回滚方案
+```bash
+# 1. 停止服务
+docker-compose down
+
+# 2. 恢复配置文件
+git checkout configs/
+
+# 3. 重新启动
+docker-compose up -d
+
+# 4. 验证服务
+curl http://localhost:5670
+```
+
+## 性能优化建议
+
+### 1. 查询优化
+- 使用LIMIT限制结果集大小
+- 避免SELECT *，明确指定需要的字段
+- 合理使用索引字段进行筛选
+
+### 2. 模型优化
+- 根据查询复杂度选择合适的模型
+- 简单查询使用小模型，复杂分析使用大模型
+- 定期清理模型缓存
+
+### 3. 系统优化
+- 监控Docker容器资源使用
+- 定期清理日志文件
+- 优化数据库连接池配置
+
+---
+
+**记住**: 遇到问题时，首先查看日志，然后按照本指南的故障排除流程逐步解决。保持配置文件的备份，以便快速回滚。 
