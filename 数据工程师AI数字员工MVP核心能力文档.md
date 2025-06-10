@@ -29,6 +29,44 @@ ORDER BY order_date DESC;
 -- 建议添加索引: CREATE INDEX idx_orders_time_status ON orders(order_time, order_status);
 ```
 
+**逾期分析专用示例**:
+```
+"分析30天以上逾期客户的逾期率矩阵，按放款月份和MOB期数分组"
+```
+
+**输出示例**:
+```sql
+-- 30天以上逾期率矩阵分析 (重新定义M1+逾期)
+SELECT 
+    li.loan_month,
+    ld.mob_period,
+    COUNT(DISTINCT ld.loan_id) as total_loans,
+    -- M1逾期率 (30-60天)
+    ROUND(SUM(CASE WHEN ld.dpd_days BETWEEN 30 AND 60 THEN ld.overdue_amount ELSE 0 END) / 
+          SUM(li.loan_amount) * 100, 2) as m1_overdue_rate,
+    -- M2逾期率 (61-90天)  
+    ROUND(SUM(CASE WHEN ld.dpd_days BETWEEN 61 AND 90 THEN ld.overdue_amount ELSE 0 END) / 
+          SUM(li.loan_amount) * 100, 2) as m2_overdue_rate,
+    -- M3逾期率 (91-120天)
+    ROUND(SUM(CASE WHEN ld.dpd_days BETWEEN 91 AND 120 THEN ld.overdue_amount ELSE 0 END) / 
+          SUM(li.loan_amount) * 100, 2) as m3_overdue_rate,
+    -- M4+逾期率 (120天以上)
+    ROUND(SUM(CASE WHEN ld.dpd_days > 120 THEN ld.overdue_amount ELSE 0 END) / 
+          SUM(li.loan_amount) * 100, 2) as m4_plus_overdue_rate,
+    -- 总体30+逾期率
+    ROUND(SUM(CASE WHEN ld.dpd_days >= 30 THEN ld.overdue_amount ELSE 0 END) / 
+          SUM(li.loan_amount) * 100, 2) as total_30plus_overdue_rate
+FROM loan_info li
+JOIN lending_details ld ON li.loan_id = ld.loan_id
+WHERE ld.dpd_days >= 30  -- 只关注30天以上逾期
+GROUP BY li.loan_month, ld.mob_period
+ORDER BY li.loan_month, ld.mob_period;
+
+-- 性能优化建议
+-- 建议添加索引: CREATE INDEX idx_lending_dpd_loan ON lending_details(dpd_days, loan_id);
+-- 建议添加索引: CREATE INDEX idx_loan_month ON loan_info(loan_month);
+```
+
 **技术实现**:
 - 基于Qwen-Coder的SQL生成
 - 预置SQL模板库 (100+ 常用查询)
@@ -158,11 +196,82 @@ AI助手: "为您分析最近7天销售数据:
 
 **预期收益**: 风险识别速度提升50倍，风险损失降低60%
 
+### 场景7: 智能逾期风险分析 ⭐⭐⭐⭐⭐
+**需求**: 基于DPD（Days Delinquent）标准进行逾期风险分析和监控
+**解决方案**: 智能逾期率计算，多维度逾期风险分析，实时逾期监控预警，根因分析和风险预测
+
+#### 逾期判定标准 (DPD分类)
+根据金融机构标准逾期天数分级等级，分别计算逾期率，以便更精准评估风险：
+
+**重新定义分类** (专注30天以上逾期):
+- **M1** (逾期 30-60 天) - 中期逾期，需要关注
+- **M2** (逾期 61-90 天) - 严重逾期，高风险  
+- **M3** (逾期 91-120 天) - 极高风险，坏账前兆
+- **M4+** (逾期 120 天以上) - 坏账，通常进入催收或核销
+
+#### 核心分析能力 (专注30+逾期)
+**计算方式**:
+以M1为例，M1逾期率 = (M1阶段的逾期金额/总应还金额) × 100%
+
+**重点监控指标** (DPD ≥ 30天):
+```sql
+-- 30天以上逾期率分析 (重新定义M1+)
+SELECT 
+    loan_month,
+    mob_period,
+    -- M1逾期率 (30-60天)
+    SUM(CASE WHEN dpd_days BETWEEN 30 AND 60 THEN overdue_amount ELSE 0 END) / 
+    SUM(total_loan_amount) * 100 as m1_overdue_rate,
+    -- M2逾期率 (61-90天)  
+    SUM(CASE WHEN dpd_days BETWEEN 61 AND 90 THEN overdue_amount ELSE 0 END) / 
+    SUM(total_loan_amount) * 100 as m2_overdue_rate,
+    -- M3逾期率 (91-120天)
+    SUM(CASE WHEN dpd_days BETWEEN 91 AND 120 THEN overdue_amount ELSE 0 END) / 
+    SUM(total_loan_amount) * 100 as m3_overdue_rate,
+    -- M4+逾期率 (120天以上)
+    SUM(CASE WHEN dpd_days > 120 THEN overdue_amount ELSE 0 END) / 
+    SUM(total_loan_amount) * 100 as m4_plus_overdue_rate,
+    -- 总体30+逾期率
+    SUM(CASE WHEN dpd_days >= 30 THEN overdue_amount ELSE 0 END) / 
+    SUM(total_loan_amount) * 100 as total_30plus_overdue_rate
+FROM lending_details ld
+JOIN loan_info li ON ld.loan_id = li.loan_id
+WHERE dpd_days >= 30  -- 只关注30天以上逾期
+GROUP BY loan_month, mob_period
+ORDER BY loan_month, mob_period;
+```
+
+**智能分析维度**:
+- **时间维度**: 按放款月份(loan_month) × MOB期数(mob_period)矩阵分析
+- **风险分层**: M1/M2/M3/M4+不同严重程度逾期率对比 (全部基于30+天逾期)
+- **趋势分析**: 逾期率变化趋势和季节性规律
+- **根因分析**: 利率、金额、地区、个人信息等因素影响分析
+
+**AI自动化能力**:
+```yaml
+智能监控:
+  - 实时30+逾期率监控
+  - 异常逾期率自动告警 (阈值可配置)
+  - 逾期率突增根因自动分析
+
+预测分析:
+  - 基于历史数据预测未来逾期趋势
+  - 客户逾期风险评分
+  - 逾期恶化预警模型 (M1转M2、M2转M3概率预测)
+
+报表生成:
+  - 自动生成月度逾期率监控报告
+  - 逾期率矩阵可视化 (热力图)
+  - 多维度逾期分析仪表板
+```
+
+**预期收益**: 逾期风险识别准确率提升85%，风险损失降低40%，监控效率提升30倍
+
 ---
 
 ## 🎯 数据分析员工替代能力总结
 
-### 核心替代能力覆盖率 - 基于6大场景分析
+### 核心替代能力覆盖率 - 基于7大场景分析
 
 | 传统数据分析工作 | AI数字员工能力 | 替代程度 | 效率提升 |
 |----------------|---------------|----------|----------|
@@ -172,6 +281,7 @@ AI助手: "为您分析最近7天销售数据:
 | 客户分析和画像 | 自动化客户分析和画像 | 85% | 15倍 |
 | 财务数据分析 | 智能财务数据分析 | 80% | 24倍 |
 | 风险管理分析 | 自动化风险管理分析 | 85% | 50倍 |
+| 逾期风险分析 | 智能逾期风险分析 | 90% | 30倍 |
 
 ### 综合替代能力评估
 
@@ -219,6 +329,7 @@ AI助手: "为您分析最近7天销售数据:
 | 自动化客户分析和画像 | ⭐⭐⭐⭐⭐ (85%) | Multi-Agents协作分析 | 低 |
 | 智能财务数据分析 | ⭐⭐⭐⭐ (80%) | 复杂查询和预测分析 | 中 |
 | 自动化风险管理分析 | ⭐⭐⭐⭐ (85%) | 实时监控和异常检测 | 中 |
+| 智能逾期风险分析 | ⭐⭐⭐⭐⭐ (90%) | DPD分析，逾期率计算，风险预测 | 低 |
 
 ### 推荐实施方案
 

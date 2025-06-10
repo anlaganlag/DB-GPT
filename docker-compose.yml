@@ -8,7 +8,7 @@ services:
       MYSQL_PASSWORD: 'password'
       MYSQL_ROOT_PASSWORD: 'aa123456'
     ports:
-      - 3306:3306
+      - 3307:3306
     volumes:
       - dbgpt-myql-db:/var/lib/mysql
       - ./docker/examples/my.cnf:/etc/my.cnf
@@ -19,7 +19,7 @@ services:
       - dbgptnet
   webserver:
     image: eosphorosai/dbgpt-openai:latest
-    command: dbgpt start webserver --config /app/configs/dbgpt-proxy-siliconflow-mysql.toml
+    command: dbgpt start webserver --config /app/configs/dbgpt-overdue-analysis.toml
     environment:
       - SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY}
       - MYSQL_PASSWORD=aa123456
