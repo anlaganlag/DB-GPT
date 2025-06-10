@@ -53,15 +53,18 @@ CRITICAL CONSTRAINTS:
     the required format. If you cannot find the most suitable one, use 'Table' as \
     the display method. , the available data display methods are as follows: \
     {display_type}
-    9. If the user explicitly requests "analysis", "report", "summary" or similar \
-    in-depth analysis needs, please provide a detailed analysis report in the \
-    analysis_report field, including:\
-    - summary: Brief summary of analysis results\
-    - key_findings: Key facts and trends discovered from the data\
-    - insights: Business insights and explanations based on the data\
-    - recommendations: Specific recommendations based on analysis results\
-    - methodology: Explanation of analysis methods and logic\
-    If the user is just making a simple data query, analysis_report can be empty or omitted.
+    9. **MANDATORY ANALYSIS REPORT REQUIREMENT:**
+    **When the user requests ANY of the following keywords: "analysis", "analyze", "report", "summary", "root cause", "根因", "分析", "报告", "总结", you MUST ALWAYS include a complete analysis_report field in your JSON response.**
+    
+    **The analysis_report field is REQUIRED and MUST contain:**
+    - summary: Brief summary of analysis results (MANDATORY)
+    - key_findings: At least 5 specific data points or trends discovered
+    - insights: At least 4 business insights explaining root causes and impacts
+    - recommendations: At least 4 actionable recommendations
+    - methodology: Detailed explanation of analysis approach
+    
+    **FAILURE TO INCLUDE analysis_report WHEN REQUESTED IS NOT ACCEPTABLE.**
+    **Even if table structure is incomplete, you MUST provide analysis based on available data.**
     
 User Question:
     {user_input}
@@ -87,7 +90,19 @@ _DEFAULT_TEMPLATE_ZH = """
     6. 请检查SQL的正确性，并保证正确的情况下优化查询性能
     7. 如果用户询问日期相关查询但没有可用的日期列，请解释当前表结构不包含日期信息。
     8. 请从如下给出的展示方式种选择最优的一种用以进行数据渲染，    将类型名称放入返回要求格式的name参数值中，如果找不到最合适的    则使用'Table'作为展示方式，可用数据展示方式如下: {display_type}
-    9. 如果用户明确要求"分析"、"报告"、"总结"或类似的深度分析需求，    请在analysis_report字段中提供详细的分析报告，包括：    - summary: 分析结果的简要总结    - key_findings: 从数据中发现的关键事实和趋势    - insights: 基于数据的业务洞察和解释    - recommendations: 基于分析结果的具体建议    - methodology: 分析方法和逻辑的说明    如果用户只是简单查询数据，analysis_report可以为空或省略。
+    9. **强制性分析报告要求：**
+    **当用户请求包含以下任何关键词时："分析"、"报告"、"总结"、"根因分析"、"根因"、"analysis"、"analyze"、"report"、"summary"，你必须在JSON响应中包含完整的analysis_report字段。**
+    
+    **analysis_report字段是必需的，必须包含：**
+    - summary: 分析结果的简要总结（必填）
+    - key_findings: 至少5个具体的数据点或发现的趋势
+    - insights: 至少4个解释根本原因和影响的业务洞察
+    - recommendations: 至少4个可操作的建议
+    - methodology: 分析方法的详细说明
+    
+    **当被要求时，不包含analysis_report是不可接受的。**
+    **即使表结构不完整，你也必须基于可用数据提供分析。**
+    
     10. **重要：为了提高查询结果的可读性，请遵循以下SQL格式化规则：**
         - 使用中文别名：为所有字段添加有意义的中文别名，如 `field_name AS '中文名称'`
         - 格式化数值：
@@ -123,20 +138,27 @@ RESPONSE_FORMAT_SIMPLE = """
     "display_type": "Data display method",
     "missing_info": "If unable to generate SQL, list specific missing information and suggestions",
     "analysis_report": {
-        "summary": "Brief summary of the analysis results (optional, only when user requests analysis or report)",
+        "summary": "MANDATORY: Brief summary of the analysis results when user requests analysis/report/root cause analysis",
         "key_findings": [
-            "Key finding 1",
-            "Key finding 2"
+            "Key finding 1: Specific data point or trend discovered",
+            "Key finding 2: Important pattern or anomaly identified",
+            "Key finding 3: Critical business metric or indicator",
+            "Key finding 4: Risk factor or concern identified",
+            "Key finding 5: Performance indicator or benchmark"
         ],
         "insights": [
-            "Business insight 1",
-            "Business insight 2"
+            "Business insight 1: Root cause explanation and underlying factors",
+            "Business insight 2: Impact analysis and business implications",
+            "Business insight 3: Trend interpretation and future implications",
+            "Business insight 4: Risk assessment and potential consequences"
         ],
         "recommendations": [
-            "Recommendation 1",
-            "Recommendation 2"
+            "Recommendation 1: Immediate action item with specific steps",
+            "Recommendation 2: Process improvement with implementation plan",
+            "Recommendation 3: Risk mitigation strategy with timeline",
+            "Recommendation 4: Performance optimization with measurable goals"
         ],
-        "methodology": "Explanation of analysis approach and methods used"
+        "methodology": "MANDATORY: Detailed explanation of analysis approach, data sources used, analytical logic applied, and reasoning behind conclusions"
     }
 }
 """
