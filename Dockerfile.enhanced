@@ -1,0 +1,41 @@
+# DB-GPT Enhanced with Dual-Mode Output
+# 包含双模式输出功能的增强版DB-GPT
+
+FROM eosphorosai/dbgpt-openai:latest
+
+LABEL maintainer="DB-GPT Enhanced Team"
+LABEL description="DB-GPT with enhanced dual-mode output functionality"
+LABEL version="1.0.0"
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制增强的核心文件
+COPY packages/dbgpt-app/src/dbgpt_app/scene/chat_db/auto_execute/out_parser.py \
+     /app/packages/dbgpt-app/src/dbgpt_app/scene/chat_db/auto_execute/out_parser.py
+
+# 复制配置文件
+COPY configs/ /app/configs/
+
+# 复制数据库初始化脚本（如果有自定义的）
+COPY docker/examples/sqls/ /docker-entrypoint-initdb.d/
+
+# 设置环境变量
+ENV PYTHONPATH="/app:${PYTHONPATH}"
+ENV DB_GPT_MODE="enhanced"
+
+# 创建数据目录
+RUN mkdir -p /app/pilot/data /app/pilot/message
+
+# 设置权限
+RUN chmod +x /app/packages/dbgpt-app/src/dbgpt_app/scene/chat_db/auto_execute/out_parser.py
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:5670/api/health || exit 1
+
+# 暴露端口
+EXPOSE 5670
+
+# 默认启动命令
+CMD ["dbgpt", "start", "webserver", "--config", "/app/configs/dbgpt-overdue-analysis.toml"] 
