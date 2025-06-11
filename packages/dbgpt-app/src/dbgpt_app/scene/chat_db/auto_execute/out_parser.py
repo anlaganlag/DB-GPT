@@ -534,16 +534,18 @@ class DbChatOutputParser(BaseOutputParser):
         
         return True, ""
 
-    def parse_view_response(self, speak, data, prompt_response=None):
+    def parse_view_response(self, speak, data, prompt_response=None, mode="simple"):
         """
-        Parse view response with enhanced error handling and SQL fixing
-        解析视图响应，增强错误处理和SQL修复
+        Parse view response with dual-mode output support
+        解析视图响应，支持双模式输出
         
         Args:
             speak: AI response text
             data: Query result data or callable
             prompt_response: Parsed prompt response (optional)
+            mode: Output mode - "simple" (default, Markdown format) or "enhanced" (chart-view format)
         """
+        logger.info(f"DEBUG parse_view_response called with mode: {mode}")
         logger.info(f"DEBUG parse_view_response called with speak: {speak}")
         logger.info(f"DEBUG parse_view_response called with data type: {type(data)}")
         logger.info(f"DEBUG parse_view_response called with prompt_response type: {type(prompt_response)}")
@@ -643,37 +645,46 @@ class DbChatOutputParser(BaseOutputParser):
                 result = data(sql_to_execute)
                 
                 if result is None or result.empty:
-                    # Even with empty results, show analysis report if available
-                    if has_analysis_report:
+                    # Even with empty results, show SQL and analysis report if available
+                    if mode == "simple":
+                        # Simple mode: Return Markdown format
                         empty_result_msg = f"""📊 **查询执行成功**
 
 ✅ **SQL执行状态**: 成功执行，但没有找到匹配的数据
 
-📝 **执行的SQL**:
-```sql
-{sql_to_execute}
-```
-
 💡 **建议**: 请尝试调整查询条件或检查数据是否存在
 
 """
-                        analysis_report_content = self._format_analysis_report_only(prompt_response.analysis_report)
-                        return empty_result_msg + analysis_report_content + fix_info
+                        
+                        # Add SQL section
+                        empty_result_msg += "="*60 + "\n"
+                        empty_result_msg += "🔧 **执行的SQL查询**\n"
+                        empty_result_msg += "="*60 + "\n\n"
+                        empty_result_msg += "```sql\n"
+                        empty_result_msg += sql_to_execute.strip()
+                        empty_result_msg += "\n```\n\n"
+                        empty_result_msg += "💡 **SQL说明**: 以上是执行的SQL语句，虽然没有返回数据，但SQL执行成功\n"
+                        
+                        # Add analysis report if available
+                        if has_analysis_report:
+                            empty_result_msg += "\n\n" + "="*60 + "\n"
+                            empty_result_msg += "📋 **分析报告** (基于查询意图)\n"
+                            empty_result_msg += "="*60 + "\n\n"
+                            empty_result_msg += self._format_analysis_report_only(prompt_response.analysis_report)
+                        
+                        return empty_result_msg + fix_info
                     else:
-                        return f"""📊 **查询执行成功**
-
-✅ **SQL执行状态**: 成功执行，但没有找到匹配的数据
-
-📝 **执行的SQL**:
-```sql
-{sql_to_execute}
-```
-
-💡 **建议**: 请尝试调整查询条件或检查数据是否存在{fix_info}"""
+                        # Enhanced mode: Generate chart-view format
+                        return self._generate_chart_view_format(result, sql_to_execute, prompt_response, fix_info)
                 
-                # Format result for display
-                view_content = self._format_result_for_display(result, prompt_response)
-                return view_content + fix_info
+                # Format result for display based on mode
+                if mode == "simple":
+                    # Simple mode: Return Markdown format (default)
+                    view_content = self._format_result_for_display(result, prompt_response)
+                    return view_content + fix_info
+                else:
+                    # Enhanced mode: Generate chart-view format for frontend rendering
+                    return self._generate_chart_view_format(result, sql_to_execute, prompt_response, fix_info)
                 
             except (SQLAlchemyError, pymysql.Error, Exception) as sql_error:
                 # If fixed SQL still fails, try the original SQL
@@ -682,8 +693,11 @@ class DbChatOutputParser(BaseOutputParser):
                     try:
                         result = data(original_sql)
                         if result is not None and not result.empty:
-                            view_content = self._format_result_for_display(result, prompt_response)
-                            return view_content + "\n⚠️ 注意: 使用了原始SQL查询（自动修复失败）"
+                            if mode == "simple":
+                                view_content = self._format_result_for_display(result, prompt_response)
+                                return view_content + "\n⚠️ 注意: 使用了原始SQL查询（自动修复失败）"
+                            else:
+                                return self._generate_chart_view_format(result, original_sql, prompt_response, "\n⚠️ 注意: 使用了原始SQL查询（自动修复失败）")
                     except Exception as fallback_error:
                         logger.info(f"Original SQL also failed: {fallback_error}")
                         # Continue with comprehensive error handling below
@@ -735,7 +749,7 @@ class DbChatOutputParser(BaseOutputParser):
                     error_response += "="*60 + "\n\n"
                     error_response += self._format_analysis_report_only(prompt_response.analysis_report)
                 
-                return error_response
+                return error_response + fix_info
                 
         except Exception as e:
             # 🚨 改进：最后的兜底处理，确保永远不显示通用错误
@@ -772,10 +786,59 @@ class DbChatOutputParser(BaseOutputParser):
 - 如果问题持续存在，请简化您的查询条件
 - 您可以尝试分步骤查询来定位问题"""
 
+    def _format_dataframe_as_markdown_table(self, df):
+        """
+        Convert DataFrame to a well-formatted Markdown table
+        将DataFrame转换为格式良好的Markdown表格
+        """
+        try:
+            if df.empty:
+                return "📊 查询结果为空"
+            
+            # Get column names
+            columns = list(df.columns)
+            
+            # Create table header
+            header = "| " + " | ".join(columns) + " |"
+            separator = "|" + "|".join([" --- " for _ in columns]) + "|"
+            
+            # Create data rows
+            rows = []
+            for _, row in df.iterrows():
+                formatted_row = []
+                for col in columns:
+                    value = row[col]
+                    # Format different types of values
+                    if pd.isna(value) or value is None:
+                        formatted_row.append("-")
+                    elif isinstance(value, (int, float)):
+                        if col.upper().startswith('MOB') or '率' in col or 'rate' in col.lower():
+                            # Format as percentage for rate columns
+                            if value == 0:
+                                formatted_row.append("0.00%")
+                            else:
+                                formatted_row.append(f"{value:.2%}")
+                        else:
+                            # Format as regular number
+                            formatted_row.append(f"{value:,.2f}")
+                    else:
+                        # Format as string
+                        formatted_row.append(str(value))
+                rows.append("| " + " | ".join(formatted_row) + " |")
+            
+            # Combine all parts
+            table = "\n".join([header, separator] + rows)
+            return table
+            
+        except Exception as e:
+            logger.error(f"Error creating Markdown table: {str(e)}")
+            # Fallback to original format
+            return df.to_string(index=False, max_rows=50)
+
     def _format_result_for_display(self, result, prompt_response):
         """
-        Format query result for display with analysis report
-        格式化查询结果用于显示，包含分析报告
+        Format query result for display with analysis report and SQL
+        格式化查询结果用于显示，包含分析报告和SQL
         """
         try:
             # Convert DataFrame to a user-friendly format
@@ -805,12 +868,39 @@ class DbChatOutputParser(BaseOutputParser):
                     result.columns = new_columns
                     logger.info(f"DataFrame列名已修复: {original_columns} -> {new_columns}")
             
-            # Create a formatted table
-            formatted_result = "📊 查询结果:\n\n"
-            formatted_result += result.to_string(index=False, max_rows=50)
+            # Create a formatted table using Markdown format
+            formatted_result = "📊 **查询结果**\n\n"
             
+            # Add table description if it looks like a pivot table
+            if any('MOB' in str(col) for col in result.columns):
+                formatted_result += "**逾期率分析表** (按放款月份和MOB期数)\n\n"
+            
+            # Use Markdown table format for better readability
+            markdown_table = self._format_dataframe_as_markdown_table(result)
+            formatted_result += markdown_table
+            
+            # Add record count info
             if len(result) > 50:
-                formatted_result += f"\n\n... 显示前50条记录，共{len(result)}条记录"
+                formatted_result += f"\n\n📋 显示前50条记录，共 **{len(result)}** 条记录"
+            else:
+                formatted_result += f"\n\n📋 共 **{len(result)}** 条记录"
+            
+            # Add data interpretation for rate tables
+            if any('MOB' in str(col) for col in result.columns):
+                formatted_result += "\n\n💡 **数据说明**:\n"
+                formatted_result += "- MOB (Months on Books): 放款后的月数\n"
+                formatted_result += "- 逾期率以百分比显示，'-' 表示暂无数据\n"
+                formatted_result += "- 数据按放款月份排列，便于趋势分析\n"
+            
+            # Add SQL section if available
+            if hasattr(prompt_response, 'sql') and prompt_response.sql:
+                formatted_result += "\n\n" + "="*60 + "\n"
+                formatted_result += "🔧 **执行的SQL查询**\n"
+                formatted_result += "="*60 + "\n\n"
+                formatted_result += "```sql\n"
+                formatted_result += prompt_response.sql.strip()
+                formatted_result += "\n```\n\n"
+                formatted_result += "💡 **SQL说明**: 以上是生成此查询结果的SQL语句，您可以参考或复制使用\n"
             
             # Add analysis report if available
             if hasattr(prompt_response, 'analysis_report') and prompt_response.analysis_report:
@@ -887,3 +977,60 @@ class DbChatOutputParser(BaseOutputParser):
         except Exception as e:
             logger.error(f"Error formatting analysis report: {str(e)}")
             return f"📋 分析报告格式化失败: {str(e)}"
+
+    def _generate_chart_view_format(self, result, sql, prompt_response, fix_info):
+        """
+        Generate chart-view format for frontend rendering
+        生成chart-view格式用于前端渲染
+        
+        Args:
+            result: Query result DataFrame
+            sql: SQL query string
+            prompt_response: Parsed prompt response
+            fix_info: SQL fix information
+            
+        Returns:
+            str: chart-view formatted string
+        """
+        try:
+            import json
+            import xml.etree.ElementTree as ET
+            from dbgpt.util.json_utils import serialize
+            
+            # Prepare chart-view data
+            param = {}
+            param["type"] = "response_table"
+            param["sql"] = sql
+            
+            if result is not None and not result.empty:
+                # Convert DataFrame to JSON format
+                param["data"] = json.loads(
+                    result.to_json(orient="records", date_format="iso", date_unit="s")
+                )
+            else:
+                param["data"] = []
+            
+            # Add analysis report if available
+            if (hasattr(prompt_response, 'analysis_report') and 
+                prompt_response.analysis_report and 
+                isinstance(prompt_response.analysis_report, dict)):
+                param["analysis_report"] = prompt_response.analysis_report
+            
+            # Generate chart-view XML element
+            view_json_str = json.dumps(param, default=serialize, ensure_ascii=False)
+            api_call_element = ET.Element("chart-view")
+            api_call_element.set("content", view_json_str)
+            result_xml = ET.tostring(api_call_element, encoding="utf-8")
+            
+            chart_view_content = result_xml.decode("utf-8")
+            
+            # Add fix info if available
+            if fix_info:
+                chart_view_content += fix_info
+                
+            return chart_view_content
+            
+        except Exception as e:
+            logger.error(f"Error generating chart-view format: {str(e)}")
+            # Fallback to simple mode if chart-view generation fails
+            return self._format_result_for_display(result, prompt_response) + fix_info
