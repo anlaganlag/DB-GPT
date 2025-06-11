@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from dbgpt._private.config import Config
 from dbgpt.core import (
@@ -12,11 +13,44 @@ from dbgpt_app.scene.chat_db.auto_execute.out_parser import DbChatOutputParser
 
 CFG = Config()
 
+# Get current time context
+current_year = datetime.now().year
+current_month = datetime.now().month
+current_date = datetime.now().strftime('%Y-%m-%d')
+
+_TIME_CONTEXT_EN = f"""
+CURRENT TIME CONTEXT:
+- Current Date: {current_date}
+- Current Year: {current_year}
+- Current Month: {current_month}
+
+IMPORTANT TIME HANDLING RULES:
+1. When user mentions "this year", "current year", always use {current_year}
+2. When user mentions "May" with "this year" context, use {current_year}-05
+3. NEVER use hardcoded years like 2023 unless specifically mentioned by user
+4. Always interpret relative time references based on current date: {current_date}
+
+"""
+
+_TIME_CONTEXT_ZH = f"""
+当前时间上下文:
+- 当前日期: {current_date}
+- 当前年份: {current_year}
+- 当前月份: {current_month}
+
+重要时间处理规则:
+1. 当用户提到"今年"、"本年"、"当年"时，始终使用 {current_year}
+2. 当用户提到"5月"并且在"今年"的上下文中时，使用 {current_year}-05
+3. 除非用户明确提到，否则绝不使用硬编码的年份如2023
+4. 始终基于当前日期解释相对时间引用: {current_date}
+
+"""
+
 
 _PROMPT_SCENE_DEFINE_EN = "You are a database expert. "
 _PROMPT_SCENE_DEFINE_ZH = "你是一个数据库专家. "
 
-_DEFAULT_TEMPLATE_EN = """
+_DEFAULT_TEMPLATE_EN = _TIME_CONTEXT_EN + """
 Please answer the user's question based on the database selected by the user and some \
 of the available table structure definitions of the database.
 Database name:
@@ -74,7 +108,7 @@ Ensure the response is correct json and can be parsed by Python json.loads.
 
 """
 
-_DEFAULT_TEMPLATE_ZH = """
+_DEFAULT_TEMPLATE_ZH = _TIME_CONTEXT_ZH + """
 请根据用户选择的数据库和该库的部分可用表结构定义来回答用户问题.
 数据库名:
     {db_name}

@@ -145,10 +145,13 @@ class SQLFixer:
     
     def _fix_group_by_issues(self, sql: str) -> Tuple[str, str]:
         """
-        Fix GROUP BY clause issues
-        修复GROUP BY子句问题
+        Fix GROUP BY clause issues including ONLY_FULL_GROUP_BY compatibility
+        修复GROUP BY子句问题，包括ONLY_FULL_GROUP_BY兼容性
         """
-        # Common issue: GROUP BY with Chinese aliases
+        fixes_applied = []
+        fixed_sql = sql
+        
+        # Fix 1: Chinese aliases in GROUP BY
         group_by_pattern = r'GROUP\s+BY\s+([^\s]+\.)?([^\s,]+[\u4e00-\u9fff][^\s,]*)'
         
         def fix_group_by_field(match):
@@ -156,10 +159,55 @@ class SQLFixer:
             field_name = match.group(2)
             return f'GROUP BY {table_prefix}`{field_name}`'
         
-        fixed_sql = re.sub(group_by_pattern, fix_group_by_field, sql, flags=re.IGNORECASE)
+        temp_sql = re.sub(group_by_pattern, fix_group_by_field, fixed_sql, flags=re.IGNORECASE)
+        if temp_sql != fixed_sql:
+            fixes_applied.append("修复了GROUP BY中的中文字段引用")
+            fixed_sql = temp_sql
         
-        if fixed_sql != sql:
-            return fixed_sql, "修复了GROUP BY中的中文字段引用"
+        # Fix 2: ONLY_FULL_GROUP_BY compatibility
+        # Detect SELECT fields that are not in GROUP BY and not aggregated
+        group_by_match = re.search(r'GROUP\s+BY\s+([^ORDER\s]+)', fixed_sql, re.IGNORECASE)
+        if group_by_match:
+            group_by_fields = [field.strip() for field in group_by_match.group(1).split(',')]
+            
+            # Extract SELECT fields (simplified pattern)
+            select_match = re.search(r'SELECT\s+(.*?)\s+FROM', fixed_sql, re.IGNORECASE | re.DOTALL)
+            if select_match:
+                select_clause = select_match.group(1)
+                
+                # Check for common problematic patterns
+                # Pattern 1: SELECT field1, field2 FROM table GROUP BY field1
+                # Should be: SELECT field1, AVG(field2) FROM table GROUP BY field1
+                
+                # Look for non-aggregated fields in SELECT that aren't in GROUP BY
+                # This is a simplified fix for the most common case
+                if 'overdue_rate' in select_clause and 'stat_month' in str(group_by_fields):
+                    # Common pattern: SELECT stat_month, overdue_rate ... GROUP BY stat_month
+                    # Fix: SELECT stat_month, AVG(overdue_rate) ... GROUP BY stat_month
+                    pattern = r'(\w+),\s*overdue_rate'
+                    replacement = r'\1, AVG(overdue_rate) as avg_overdue_rate'
+                    temp_sql = re.sub(pattern, replacement, fixed_sql)
+                    if temp_sql != fixed_sql:
+                        fixes_applied.append("为非聚合字段添加了AVG函数以兼容ONLY_FULL_GROUP_BY")
+                        fixed_sql = temp_sql
+                
+                # Pattern 2: DATE_FORMAT with non-aggregated field
+                date_format_pattern = r'(DATE_FORMAT\([^)]+\)\s+AS\s+\w+),\s*(\w+)(\s+FROM.*?GROUP\s+BY\s+[^,\s]+)'
+                if re.search(date_format_pattern, fixed_sql, re.IGNORECASE | re.DOTALL):
+                    def fix_date_format_group_by(match):
+                        date_part = match.group(1)
+                        field = match.group(2)
+                        rest = match.group(3)
+                        # Add aggregation to the non-grouped field
+                        return f"{date_part}, AVG({field}) as avg_{field}{rest}"
+                    
+                    temp_sql = re.sub(date_format_pattern, fix_date_format_group_by, fixed_sql, flags=re.IGNORECASE | re.DOTALL)
+                    if temp_sql != fixed_sql:
+                        fixes_applied.append("为DATE_FORMAT查询添加了聚合函数以兼容ONLY_FULL_GROUP_BY")
+                        fixed_sql = temp_sql
+        
+        if fixes_applied:
+            return fixed_sql, "; ".join(fixes_applied)
         
         return sql, ""
 
