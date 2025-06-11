@@ -3,6 +3,8 @@
 ## Background and Motivation
 用户在使用DB-GPT查询"帮我分析逾期率"时遇到"Generate view content failed"错误。系统返回空数据，显示表结构信息不足的错误。
 
+**最新需求**: 用户希望即使SQL报错，也不展示通用的"ERROR! Generate view content failed"错误，而是展示原样的SQL和具体错误信息，提供更有用的调试信息。
+
 ## Key Challenges and Analysis
 
 ### 1. 数据生成挑战 ✅ SOLVED

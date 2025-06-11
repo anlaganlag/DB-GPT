@@ -571,9 +571,23 @@ class DbChatOutputParser(BaseOutputParser):
                 if has_analysis_report:
                     return self._format_analysis_report_only(prompt_response.analysis_report)
                 
-                error_msg = "AI模型未生成SQL查询，请尝试重新描述您的需求"
-                logger.error(f"parse_view_response error: {error_msg}")
-                return f"❌ 查询失败: {error_msg}"
+                # 🚨 改进：即使没有SQL也不显示通用错误，而是提供有用的信息
+                error_msg = """📋 **查询分析结果**
+
+🤖 **AI响应**: AI模型提供了回答但未生成SQL查询
+
+💬 **AI回复内容**:
+```
+{speak_content}
+```
+
+💡 **建议**: 
+- 如果您需要数据查询，请尝试更具体地描述您的需求
+- 如果这是一个概念性问题，AI的回答可能已经包含了您需要的信息
+- 您可以尝试重新表述问题，明确指出需要查询哪些数据""".format(speak_content=speak if speak else "AI未提供具体回复")
+                
+                logger.info(f"No SQL generated, returning informative message")
+                return error_msg
             
             original_sql = prompt_response.sql.strip()
             logger.info(f"DEBUG Original SQL: {original_sql}")
@@ -594,9 +608,35 @@ class DbChatOutputParser(BaseOutputParser):
             # Basic SQL validation
             is_valid, validation_error = self.validate_sql_basic(sql_to_execute)
             if not is_valid:
-                error_msg = f"SQL验证失败: {validation_error}"
-                logger.error(f"SQL validation failed: {error_msg}")
-                return f"❌ 查询失败: {error_msg}"
+                # 🚨 改进：SQL验证失败时展示完整信息
+                error_response = f"""📋 **SQL验证失败**
+
+🔍 **验证错误**: {validation_error}
+
+📝 **原始SQL**:
+```sql
+{original_sql}
+```"""
+                
+                if fixes_applied:
+                    error_response += f"""
+
+🔧 **修复后的SQL**:
+```sql
+{sql_to_execute}
+```
+
+⚙️ **应用的修复**: {', '.join(fixes_applied)}"""
+                
+                error_response += """
+
+💡 **建议**: 
+- 请检查SQL语法是否正确
+- 确认表名和字段名是否存在
+- 避免使用危险的SQL操作（如DROP、DELETE等）"""
+                
+                logger.error(f"SQL validation failed: {validation_error}")
+                return error_response
             
             # Execute SQL with enhanced error handling
             try:
@@ -605,11 +645,31 @@ class DbChatOutputParser(BaseOutputParser):
                 if result is None or result.empty:
                     # Even with empty results, show analysis report if available
                     if has_analysis_report:
-                        empty_result_msg = "📊 查询执行成功，但没有找到匹配的数据。请尝试调整查询条件。\n\n"
+                        empty_result_msg = f"""📊 **查询执行成功**
+
+✅ **SQL执行状态**: 成功执行，但没有找到匹配的数据
+
+📝 **执行的SQL**:
+```sql
+{sql_to_execute}
+```
+
+💡 **建议**: 请尝试调整查询条件或检查数据是否存在
+
+"""
                         analysis_report_content = self._format_analysis_report_only(prompt_response.analysis_report)
                         return empty_result_msg + analysis_report_content + fix_info
                     else:
-                        return f"📊 查询执行成功，但没有找到匹配的数据。请尝试调整查询条件。{fix_info}"
+                        return f"""📊 **查询执行成功**
+
+✅ **SQL执行状态**: 成功执行，但没有找到匹配的数据
+
+📝 **执行的SQL**:
+```sql
+{sql_to_execute}
+```
+
+💡 **建议**: 请尝试调整查询条件或检查数据是否存在{fix_info}"""
                 
                 # Format result for display
                 view_content = self._format_result_for_display(result, prompt_response)
@@ -624,39 +684,93 @@ class DbChatOutputParser(BaseOutputParser):
                         if result is not None and not result.empty:
                             view_content = self._format_result_for_display(result, prompt_response)
                             return view_content + "\n⚠️ 注意: 使用了原始SQL查询（自动修复失败）"
-                    except Exception:
-                        pass  # Continue with error handling below
+                    except Exception as fallback_error:
+                        logger.info(f"Original SQL also failed: {fallback_error}")
+                        # Continue with comprehensive error handling below
                 
-                # Enhanced SQL error handling
+                # 🚨 改进：提供最详细的错误信息，包括SQL内容
                 user_friendly_error = self.format_sql_error_for_user(sql_error, sql_to_execute)
                 technical_error = str(sql_error)
                 
                 logger.error(f"SQL execution failed: {technical_error}")
                 logger.error(f"SQL that failed: {sql_to_execute}")
                 
-                # Return detailed error information
-                error_response = f"""❌ 数据库查询失败
+                # Return comprehensive error information with SQL display
+                error_response = f"""📋 **数据库查询详细信息**
 
-🔍 错误原因: {user_friendly_error}
+❌ **执行状态**: 查询失败
 
-📝 执行的SQL:
+🔍 **错误原因**: {user_friendly_error}
+
+📝 **执行的SQL**:
 ```sql
 {sql_to_execute}
+```"""
+
+                # Show original SQL if it was modified
+                if fixes_applied and sql_to_execute != original_sql:
+                    error_response += f"""
+
+📝 **原始SQL**:
+```sql
+{original_sql}
 ```
 
-🔧 技术详情: {technical_error}
+🔧 **已尝试的修复**: {', '.join(fixes_applied)}"""
 
-💡 建议: 请尝试简化查询或检查字段名是否正确"""
+                error_response += f"""
 
-                if fixes_applied:
-                    error_response += f"\n\n🔧 已尝试的修复: {', '.join(fixes_applied)}"
+🔧 **技术详情**: {technical_error}
+
+💡 **建议**: 
+- 检查表名和字段名是否正确
+- 确认数据库中是否存在相关数据
+- 尝试简化查询条件
+- 检查SQL语法是否符合MySQL标准"""
+
+                # Add analysis report if available, even when SQL fails
+                if has_analysis_report:
+                    error_response += "\n\n" + "="*60 + "\n"
+                    error_response += "📋 **AI分析报告** (基于查询意图)\n"
+                    error_response += "="*60 + "\n\n"
+                    error_response += self._format_analysis_report_only(prompt_response.analysis_report)
                 
                 return error_response
                 
         except Exception as e:
-            # Catch-all for any other errors
+            # 🚨 改进：最后的兜底处理，确保永远不显示通用错误
             logger.error(f"Unexpected error in parse_view_response: {str(e)}")
-            return f"❌ 系统错误: {str(e)}"
+            
+            # Try to extract SQL from prompt_response if available
+            sql_info = ""
+            if hasattr(prompt_response, 'sql') and prompt_response.sql:
+                sql_info = f"""
+
+📝 **相关SQL**:
+```sql
+{prompt_response.sql}
+```"""
+            
+            # Try to include AI response if available
+            ai_response_info = ""
+            if speak:
+                ai_response_info = f"""
+
+💬 **AI回复内容**:
+```
+{speak}
+```"""
+            
+            return f"""📋 **系统处理信息**
+
+⚠️ **处理状态**: 系统在处理您的请求时遇到了意外情况
+
+🔧 **技术详情**: {str(e)}{sql_info}{ai_response_info}
+
+💡 **建议**: 
+- 请尝试重新提交您的查询
+- 如果问题持续存在，请简化您的查询条件
+- 您可以尝试分步骤查询来定位问题"""
 
     def _format_result_for_display(self, result, prompt_response):
         """
