@@ -1,0 +1,88 @@
+with dates as (
+select date_format(d, 'yyyy-MM') as month_yyyy_mm, max(d) as month_last_day
+from (
+select  date_add("2021-07-01", a.pos) as d
+from (
+select posexplode(split(repeat("o", datediff("2024-03-31", "2021-07-01")), "o"))
+) a
+) b group by date_format(d, 'yyyy-MM')
+)
+
+select substr(loan_active_date,1,7) as loan_month
+, b.product_id
+, loan_init_term
+, strategy
+, output_level
+, (year(month_last_day) - year(loan_active_date)) * 12 + month(month_last_day) - month(loan_active_date) as  mob
+, month_yyyy_mm as stat_month
+, count(1) as nbr_bills
+, sum(loan_init_principal*credit_coef) as wgt_loanrate
+, count(case when remain_principal > 0 then 1 else NULL end) as `在贷笔数`
+, max(remain_principal) as max_remain_principal
+, min(remain_principal) as min_remain_principal
+, sum(remain_principal) as sum_remain_principal
+, sum(paid_principal) as sum_paid_principal
+, sum(paid_interest) as sum_paid_interest
+, sum(remain_interest) as sum_remain_interest
+, sum(remain_principal * b.credit_coef) as sum_rm_wgt_loan_rate
+, sum(remain_principal * contract_term) as sum_wgt_contract_term
+, sum(remain_principal * loan_term_remain) as sum_wgt_loan_term_remain
+, sum(loan_init_principal * b.credit_coef) as sum_init_wgt_loan_rate
+, sum(loan_init_principal * loan_init_term) as sum_wgt_loan_term
+, sum(loan_init_principal) as loan_amount2
+, sum(case when dpd_days < 91 then remain_principal else 0.0 end) as ndp_ending_bal
+, sum(case when dpd_days < 31 then remain_principal else 0.0 end) as ndp30_ending_bal
+, sum(case when dpd_days <= 0 then remain_principal else 0.0 end) as current_ending_bal
+, sum(case when dpd_days > 0 and dpd_days <= 30 then remain_principal else 0.0 end) as dpd1_30_ending_bal
+, sum(case when dpd_days > 30 and dpd_days <= 60 then remain_principal else 0.0 end) as dpd30_60_ending_bal
+, sum(case when dpd_days > 82 and dpd_days <= 90 then remain_principal else 0.0 end) as dpd82_89_ending_bal
+, sum(case when dpd_days > 60 and dpd_days <= 90 then remain_principal else 0.0 end) as dpd60_90_ending_bal
+, sum(case when dpd_days > 90 and dpd_days <= 120 then remain_principal else 0.0 end) as dpd90_120_ending_bal
+, sum(case when dpd_days > 120 and dpd_days <= 150 then remain_principal else 0.0 end) as dpd120_150_ending_bal
+, sum(case when dpd_days > 150 and dpd_days <= 180 then remain_principal else 0.0 end) as dpd150_180_ending_bal
+, sum(case when dpd_days > 180 then remain_principal else 0.0 end) as dpd180plus_ending_bal
+, sum(case when dpd_days >= 91 then remain_principal else 0.0 end) as dpd90plus_remain_prin
+, sum(case when dpd_days <= 0 then 1 else 0.0 end) as current_cnt
+, sum(case when dpd_days > 0 and dpd_days <= 30 then 1 else 0.0 end) as dpd1_30_cnt
+, sum(case when dpd_days > 30 and dpd_days <= 60 then 1 else 0.0 end) as dpd30_60_cnt
+, sum(case when dpd_days > 60 and dpd_days <= 90 then 1 else 0.0 end) as dpd60_90_cnt
+, sum(case when dpd_days >= 91 then 1 else 0.0 end) as dpd90plus_cnt
+from  risk_platform.lending_details b
+join dates on 1 = 1
+join (
+select due_bill_no, product_id, remain_principal,paid_principal, paid_interest, remain_interest, dpd_days, loan_term_remain,s_d_date, e_d_date
+from risk_platform.loan_info
+where product_id in ('002902')
+) c
+on b.due_bill_no = c.due_bill_no
+and b.product_id = c.product_id
+
+left join (
+
+       select t.swift_no,t.pro_code,t.applyNo,t.createTime,t.fitScore,t.retCode,t.scoreRange,t.strategy,w.output_level
+           from (
+                   select applyNo,max(id) as id_a
+                   from stage_riskcontrol.t_ws_entrance_credit where productName in ("******")
+                   group by applyNo ) m
+           left join (
+                   select swift_no,applyNo,id,pro_code,fitScore,scoreRange,retCode,strategy,createTime 
+                   from stage_riskcontrol.t_ws_entrance_credit where productName in ("******")) t 
+           on m.applyNo = t.applyNo
+           and m.id_a = t.id
+           left join (
+                   select swift_no, output_level
+                   from stage_riskcontrol.t_model_inputparams_extend2 where project_name in ("******"))w
+           on t.swift_no=w.swift_no ) t1
+
+on b.due_bill_no = t1.applyNo
+
+where b.product_id in ('002902')
+and is_lend is True
+and (month_last_day between c.s_d_date and date_sub(c.e_d_date,1))
+group by substr(loan_active_date,1,7) 
+, (year(month_last_day) - year(loan_active_date)) * 12 + month(month_last_day) - month(loan_active_date)
+, month_yyyy_mm
+, b.product_id
+, loan_init_term
+, strategy
+, output_level
