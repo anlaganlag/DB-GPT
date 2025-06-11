@@ -95,6 +95,10 @@ class ChatWithDbAutoExecute(BaseChat):
                 # TODO: Count the number of tokens by LLMClient
                 table_infos = table_infos[: self.curr_config.schema_max_tokens]
 
+        # Import RESPONSE_FORMAT_SIMPLE from prompt module
+        from dbgpt_app.scene.chat_db.auto_execute.prompt import RESPONSE_FORMAT_SIMPLE
+        import json
+        
         input_values = {
             "db_name": self.db_name,
             "user_input": user_input,
@@ -102,6 +106,7 @@ class ChatWithDbAutoExecute(BaseChat):
             "dialect": self.database.dialect,
             "table_info": table_infos,
             "display_type": self._generate_numbered_list(),
+            "response_format": json.dumps(RESPONSE_FORMAT_SIMPLE, ensure_ascii=False, indent=4),
         }
         return input_values
 
