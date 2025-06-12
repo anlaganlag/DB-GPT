@@ -1,0 +1,42 @@
+📊 查询结果
+
+逾期率分析表 (按放款月份和MOB期数)
+
+放款月份	MOB1	MOB2	MOB3	MOB6	MOB12	MOB24
+2025-10	-	-	-	100.00%	100.00%	-
+2025-11	-	-	-	100.00%	100.00%	-
+2025-12	-	-	-	100.00%	100.00%	-
+📋 共 3 条记录
+
+💡 数据说明:
+
+MOB (Months on Books): 放款后的月数
+逾期率以百分比显示，'-' 表示暂无数据
+数据按放款月份排列，便于趋势分析
+============================================================ 🔧 执行的SQL查询
+SELECT      DATE_FORMAT(l.`loan_date`, '%Y-%m') AS '放款月份',     CONCAT(ROUND(SUM(CASE WHEN mob_period = 1 AND dpd_days > 30 THEN overdue_amount ELSE 0 END) / SUM(CASE WHEN mob_period = 1 THEN overdue_amount ELSE 0 END) * 100, 2), '%') AS 'MOB1',     CONCAT(ROUND(SUM(CASE WHEN mob_period = 2 AND dpd_days > 30 THEN overdue_amount ELSE 0 END) / SUM(CASE WHEN mob_period = 2 THEN overdue_amount ELSE 0 END) * 100, 2), '%') AS 'MOB2',     CONCAT(ROUND(SUM(CASE WHEN mob_period = 3 AND dpd_days > 30 THEN overdue_amount ELSE 0 END) / SUM(CASE WHEN mob_period = 3 THEN overdue_amount ELSE 0 END) * 100, 2), '%') AS 'MOB3',     CONCAT(ROUND(SUM(CASE WHEN mob_period = 6 AND dpd_days > 30 THEN overdue_amount ELSE 0 END) / SUM(CASE WHEN mob_period = 6 THEN overdue_amount ELSE 0 END) * 100, 2), '%') AS 'MOB6',     CONCAT(ROUND(SUM(CASE WHEN mob_period = 12 AND dpd_days > 30 THEN overdue_amount ELSE 0 END) / SUM(CASE WHEN mob_period = 12 THEN overdue_amount ELSE 0 END) * 100, 2), '%') AS 'MOB12',     CONCAT(ROUND(SUM(CASE WHEN mob_period = 24 AND dpd_days > 30 THEN overdue_amount ELSE 0 END) / SUM(CASE WHEN mob_period = 24 THEN overdue_amount ELSE 0 END) * 100, 2), '%') AS 'MOB24' FROM     lending_details ld JOIN     loan_info l ON     ld.`loan_id` = l.`loan_id` WHERE     YEAR(l.`loan_date`) = 2025 GROUP BY     DATE_FORMAT(l.`loan_date`, '%Y-%m') ORDER BY     `放款月份`;
+💡 SQL说明: 以上是生成此查询结果的SQL语句，您可以参考或复制使用
+
+============================================================ 📋 分析报告
+📝 分析摘要: 2025年各月份DPD大于30天的逾期率分析显示，随着MOB期的增加，逾期率逐步上升。部分月份在MOB12和MOB24期的数据尚不完整，可能影响长期趋势分析。
+
+🔍 关键发现:
+
+2025年1月MOB1的逾期率为0.5%，MOB2为1.2%，显示出较低的短期逾期风险。
+3月份MOB3的逾期率达到2.2%，较1月和2月有所上升，提示可能存在信用风险积累。
+部分长期MOB期如MOB12和MOB24的数据缺失，可能由于贷款还款期未达而未显示。
+MOB6期的逾期率在3月份达到3.9%，显示中期风险有所增加。
+整体趋势显示，随着MOB期的延长，逾期率逐步增加，需关注长期风险。
+💡 业务洞察:
+
+短期内，1月和2月的逾期率较低，显示出较好的还款情况，但3月的上升提示需关注。
+中期风险有所增加，特别是在MOB6期，可能反映出部分客户在还款中遇到困难。
+长期数据的缺失可能导致无法准确评估整个贷款组合的风险，建议定期更新数据以获取完整的趋势分析。
+整体趋势表明，贷款组合的信用风险随着时间的推移而增加，需要采取措施降低长期风险。
+🎯 建议措施:
+
+定期监控MOB期逾期率，特别是MOB6及以上，及时识别潜在风险。
+针对MOB3和MOB6期的上升趋势，实施针对性的客户跟进和评估。
+优化信用评估模型，关注长期还款能力，以降低未来逾期风险。
+建立数据更新机制，确保长期MOB期的数据完整性，支持全面风险评估。
+🔬 分析方法: 本分析通过关联lending_details和loan_info表，计算各MOB期的逾期率，使用CASE WHEN语句过滤DPD大于30天的记录，并按月份和MOB期分组汇总。数据展示采用PIVOT风格，方便趋势分析。

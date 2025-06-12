@@ -17,3 +17,6 @@ docker exec -it db-gpt-webserver-1 tail -f /app/logs/dbgpt.log
 
 重启容器
 docker compose restart webserver
+
+推送的镜像
+jb140313/dbgpt-enhanced:latest

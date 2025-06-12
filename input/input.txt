@@ -1,12 +1,15 @@
-with dates as (
-select date_format(d, 'yyyy-MM') as month_yyyy_mm, max(d) as month_last_day
-from (
-select  date_add("2021-07-01", a.pos) as d
-from (
-select posexplode(split(repeat("o", datediff("2024-03-31", "2021-07-01")), "o"))
-) a
-) b group by date_format(d, 'yyyy-MM')
+WITH RECURSIVE dates AS (
+    SELECT 
+        DATE_FORMAT('2021-07-01', '%Y-%m') AS month_yyyy_mm,
+        LAST_DAY('2021-07-01') AS month_last_day
+    UNION ALL
+    SELECT 
+        DATE_FORMAT(month_last_day + INTERVAL 1 DAY, '%Y-%m'),
+        LAST_DAY(month_last_day + INTERVAL 1 DAY)
+    FROM dates
+    WHERE month_last_day < '2024-03-31'
 )
+SELECT * FROM dates;
 
 select substr(loan_active_date,1,7) as loan_month
 , b.product_id
@@ -86,3 +89,119 @@ group by substr(loan_active_date,1,7)
 , loan_init_term
 , strategy
 , output_level
+
+
+
+-------------------------------------------------------
+
+
+SELECT 
+    DATE_FORMAT(loan_active_date, '%Y-%m') AS loan_month,
+    b.product_id,
+    loan_init_term,
+    strategy,
+    output_level,
+    (YEAR(month_last_day) - YEAR(loan_active_date)) * 12 
+        + (MONTH(month_last_day) - MONTH(loan_active_date)) AS mob,
+    month_yyyy_mm AS stat_month,
+    COUNT(1) AS nbr_bills,
+    SUM(loan_init_principal * credit_coef) AS wgt_loanrate,
+    COUNT(CASE WHEN remain_principal > 0 THEN 1 END) AS `在贷笔数`,
+    MAX(remain_principal) AS max_remain_principal,
+    MIN(remain_principal) AS min_remain_principal,
+    SUM(remain_principal) AS sum_remain_principal,
+    SUM(paid_principal) AS sum_paid_principal,
+    SUM(paid_interest) AS sum_paid_interest,
+    SUM(remain_interest) AS sum_remain_interest,
+    SUM(remain_principal * b.credit_coef) AS sum_rm_wgt_loan_rate,
+    SUM(remain_principal * contract_term) AS sum_wgt_contract_term,
+    SUM(remain_principal * loan_term_remain) AS sum_wgt_loan_term_remain,
+    SUM(loan_init_principal * b.credit_coef) AS sum_init_wgt_loan_rate,
+    SUM(loan_init_principal * loan_init_term) AS sum_wgt_loan_term,
+    SUM(loan_init_principal) AS loan_amount2,
+    SUM(CASE WHEN dpd_days < 91 THEN remain_principal ELSE 0.0 END) AS ndp_ending_bal,
+    SUM(CASE WHEN dpd_days < 31 THEN remain_principal ELSE 0.0 END) AS ndp30_ending_bal,
+    SUM(CASE WHEN dpd_days <= 0 THEN remain_principal ELSE 0.0 END) AS current_ending_bal,
+    SUM(CASE WHEN dpd_days > 0 AND dpd_days <= 30 THEN remain_principal ELSE 0.0 END) AS dpd1_30_ending_bal,
+    SUM(CASE WHEN dpd_days > 30 AND dpd_days <= 60 THEN remain_principal ELSE 0.0 END) AS dpd30_60_ending_bal,
+    SUM(CASE WHEN dpd_days > 82 AND dpd_days <= 90 THEN remain_principal ELSE 0.0 END) AS dpd82_89_ending_bal,
+    SUM(CASE WHEN dpd_days > 60 AND dpd_days <= 90 THEN remain_principal ELSE 0.0 END) AS dpd60_90_ending_bal,
+    SUM(CASE WHEN dpd_days > 90 AND dpd_days <= 120 THEN remain_principal ELSE 0.0 END) AS dpd90_120_ending_bal,
+    SUM(CASE WHEN dpd_days > 120 AND dpd_days <= 150 THEN remain_principal ELSE 0.0 END) AS dpd120_150_ending_bal,
+    SUM(CASE WHEN dpd_days > 150 AND dpd_days <= 180 THEN remain_principal ELSE 0.0 END) AS dpd150_180_ending_bal,
+    SUM(CASE WHEN dpd_days > 180 THEN remain_principal ELSE 0.0 END) AS dpd180plus_ending_bal,
+    SUM(CASE WHEN dpd_days >= 91 THEN remain_principal ELSE 0.0 END) AS dpd90plus_remain_prin,
+    SUM(CASE WHEN dpd_days <= 0 THEN 1 ELSE 0 END) AS current_cnt,
+    SUM(CASE WHEN dpd_days > 0 AND dpd_days <= 30 THEN 1 ELSE 0 END) AS dpd1_30_cnt,
+    SUM(CASE WHEN dpd_days > 30 AND dpd_days <= 60 THEN 1 ELSE 0 END) AS dpd30_60_cnt,
+    SUM(CASE WHEN dpd_days > 60 AND dpd_days <= 90 THEN 1 ELSE 0 END) AS dpd60_90_cnt,
+    SUM(CASE WHEN dpd_days >= 91 THEN 1 ELSE 0 END) AS dpd90plus_cnt
+FROM risk_platform.lending_details b
+JOIN dates 
+JOIN (
+    SELECT 
+        due_bill_no, 
+        product_id, 
+        remain_principal,
+        paid_principal, 
+        paid_interest, 
+        remain_interest, 
+        dpd_days, 
+        loan_term_remain,
+        s_d_date, 
+        e_d_date
+    FROM risk_platform.loan_info
+    WHERE product_id = '002902'
+) c ON b.due_bill_no = c.due_bill_no
+    AND b.product_id = c.product_id
+LEFT JOIN (
+    SELECT 
+        t.swift_no,
+        t.pro_code,
+        t.applyNo,
+        t.createTime,
+        t.fitScore,
+        t.retCode,
+        t.scoreRange,
+        t.strategy,
+        w.output_level
+    FROM (
+        SELECT 
+            applyNo,
+            MAX(id) AS id_a
+        FROM stage_riskcontrol.t_ws_entrance_credit 
+        GROUP BY applyNo 
+    ) m
+    LEFT JOIN (
+        SELECT 
+            swift_no,
+            applyNo,
+            id,
+            pro_code,
+            fitScore,
+            scoreRange,
+            retCode,
+            strategy,
+            createTime 
+        FROM stage_riskcontrol.t_ws_entrance_credit 
+    ) t ON m.applyNo = t.applyNo
+        AND m.id_a = t.id
+    LEFT JOIN (
+        SELECT 
+            swift_no, 
+            output_level
+        FROM stage_riskcontrol.t_model_inputparams_extend2 
+    ) w ON t.swift_no = w.swift_no 
+) t1 ON b.due_bill_no = t1.applyNo
+WHERE b.product_id = '002902'
+    AND is_lend = TRUE
+    AND dates.month_last_day BETWEEN c.s_d_date 
+        AND DATE_SUB(c.e_d_date, INTERVAL 1 DAY)
+GROUP BY 
+    DATE_FORMAT(loan_active_date, '%Y-%m'),
+    b.product_id,
+    loan_init_term,
+    strategy,
+    output_level,
+    mob,  
+    stat_month;  
