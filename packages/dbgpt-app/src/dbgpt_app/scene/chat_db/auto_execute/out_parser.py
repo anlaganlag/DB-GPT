@@ -557,39 +557,71 @@ class DbChatOutputParser(BaseOutputParser):
         
         try:
             # Check if we have analysis report - if so, we should execute SQL and format the full report
-            has_analysis_report = (hasattr(prompt_response, 'analysis_report') and 
-                                 prompt_response.analysis_report and 
+            has_analysis_report = (hasattr(prompt_response, 'analysis_report') and
+                                 prompt_response.analysis_report and
                                  isinstance(prompt_response.analysis_report, dict) and
                                  any(prompt_response.analysis_report.values()))
-            
-            # Only return direct_response if there's no SQL and no analysis report
-            if (hasattr(prompt_response, 'direct_response') and prompt_response.direct_response and
-                not has_analysis_report and 
-                (not hasattr(prompt_response, 'sql') or not prompt_response.sql)):
-                return prompt_response.direct_response
-            
+
+            # 🚨 改进：优先处理有意义的direct_response，支持非SQL查询
             if not hasattr(prompt_response, 'sql') or not prompt_response.sql:
+                # 如果有direct_response，优先返回它（这是AI对概念性问题的回答）
+                if (hasattr(prompt_response, 'direct_response') and
+                    prompt_response.direct_response and
+                    prompt_response.direct_response.strip()):
+
+                    # 检查是否是有意义的回答（不是错误信息）
+                    direct_resp = prompt_response.direct_response.strip()
+
+                    # 如果是表结构不足的提示，提供更友好的回复
+                    if "表结构信息不足" in direct_resp or "不足以生成" in direct_resp:
+                        formatted_response = f"""💬 **AI分析回复**
+
+{speak if speak else direct_resp}
+
+📋 **说明**:
+- 当前查询可能是概念性问题，不需要具体的数据库查询
+- 或者需要更多的表结构信息才能生成准确的SQL查询
+
+💡 **建议**:
+- 如果您需要查询具体数据，请提供更详细的表名和字段信息
+- 如果这是概念性问题，上述AI回复可能已经包含了您需要的信息
+- 您可以尝试询问："显示所有可用的表"或"查询customer_info表的结构\""""
+
+                        logger.info(f"Returning formatted direct response for insufficient table info")
+                        return formatted_response
+                    else:
+                        # 其他类型的direct_response，直接返回但格式化
+                        formatted_response = f"""💬 **AI回复**
+
+{direct_resp}
+
+📋 **说明**: AI模型基于您的查询提供了概念性回答
+
+💡 **提示**: 如果您需要查询具体数据，请明确指出需要查询的表名和字段"""
+
+                        logger.info(f"Returning formatted direct response")
+                        return formatted_response
+
                 # If we have analysis report but no SQL, format the report without data
                 if has_analysis_report:
                     return self._format_analysis_report_only(prompt_response.analysis_report)
-                
-                # 🚨 改进：即使没有SQL也不显示通用错误，而是提供有用的信息
-                error_msg = """📋 **查询分析结果**
 
-🤖 **AI响应**: AI模型提供了回答但未生成SQL查询
+                # 最后的兜底处理：提供有用的信息而不是错误
+                fallback_msg = f"""📋 **查询处理结果**
 
-💬 **AI回复内容**:
-```
-{speak_content}
-```
+🤖 **AI分析**: {speak if speak else "AI模型已处理您的查询"}
 
-💡 **建议**: 
-- 如果您需要数据查询，请尝试更具体地描述您的需求
-- 如果这是一个概念性问题，AI的回答可能已经包含了您需要的信息
-- 您可以尝试重新表述问题，明确指出需要查询哪些数据""".format(speak_content=speak if speak else "AI未提供具体回复")
-                
-                logger.info(f"No SQL generated, returning informative message")
-                return error_msg
+💡 **说明**:
+- 您的查询可能是概念性问题，不需要数据库查询
+- 或者当前数据库信息不足以生成具体的SQL查询
+
+🔧 **建议**:
+- 如果需要查询数据，请提供具体的表名和字段名
+- 尝试询问："显示数据库中的所有表"
+- 或者重新描述您的数据查询需求"""
+
+                logger.info(f"No SQL generated, returning fallback informative message")
+                return fallback_msg
             
             original_sql = prompt_response.sql.strip()
             logger.info(f"DEBUG Original SQL: {original_sql}")

@@ -16,7 +16,7 @@ class ChatWithDBQAConfig(GPTsAppCommonConfig):
 
     name = ChatScene.ChatWithDbQA.value()
     schema_retrieve_top_k: int = field(
-        default=10,
+        default=1000,
         metadata={"help": _("The number of tables to retrieve from the database.")},
     )
     schema_max_tokens: int = field(

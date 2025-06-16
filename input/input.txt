@@ -62,16 +62,16 @@ left join (
        select t.swift_no,t.pro_code,t.applyNo,t.createTime,t.fitScore,t.retCode,t.scoreRange,t.strategy,w.output_level
            from (
                    select applyNo,max(id) as id_a
-                   from stage_riskcontrol.t_ws_entrance_credit where productName in ("******")
+                   from stage_riskcontrol.t_ws_entrance_credit 
                    group by applyNo ) m
            left join (
                    select swift_no,applyNo,id,pro_code,fitScore,scoreRange,retCode,strategy,createTime 
-                   from stage_riskcontrol.t_ws_entrance_credit where productName in ("******")) t 
+                   from stage_riskcontrol.t_ws_entrance_credit) t 
            on m.applyNo = t.applyNo
            and m.id_a = t.id
            left join (
                    select swift_no, output_level
-                   from stage_riskcontrol.t_model_inputparams_extend2 where project_name in ("******"))w
+                   from stage_riskcontrol.t_model_inputparams_extend2 )w
            on t.swift_no=w.swift_no ) t1
 
 on b.due_bill_no = t1.applyNo
