@@ -16,8 +16,8 @@ class ChatWithDBExecuteConfig(GPTsAppCommonConfig):
 
     name = ChatScene.ChatWithDbExecute.value()
     schema_retrieve_top_k: int = field(
-        default=10,
-        metadata={"help": _("The number of tables to retrieve from the database.")},
+        default=50,
+        metadata={"help": _("The number of tables to retrieve from the database. Increased from 10 to 50 to support databases with more tables.")},
     )
     schema_max_tokens: int = field(
         default=100 * 1024,
