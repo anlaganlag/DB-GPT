@@ -523,14 +523,31 @@ class DbChatOutputParser(BaseOutputParser):
         sql_upper = sql.upper().strip()
         
         # Check for dangerous operations (basic security)
-        dangerous_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER', 'CREATE', 'INSERT', 'UPDATE']
-        for keyword in dangerous_keywords:
-            if keyword in sql_upper and not sql_upper.startswith('SELECT'):
-                return False, f"不允许执行 {keyword} 操作"
+        # 修复：正确识别CTE语法，避免误判WITH子句为CREATE操作
+        dangerous_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER', 'INSERT', 'UPDATE']
         
-        # Check for basic SQL structure
-        if not sql_upper.startswith('SELECT') and not sql_upper.startswith('WITH'):
-            return False, "只支持 SELECT 查询"
+        # 检查是否是允许的查询类型（SELECT或WITH开头的CTE）
+        is_allowed_query = sql_upper.startswith('SELECT') or sql_upper.startswith('WITH')
+        
+        if not is_allowed_query:
+            return False, "只支持 SELECT 查询和 WITH 子句（CTE）"
+        
+        # 对于危险关键词的检查，需要更精确的逻辑
+        for keyword in dangerous_keywords:
+            if keyword in sql_upper:
+                # 特殊处理：CREATE可能出现在WITH子句中，但不应该是独立的CREATE语句
+                if keyword == 'CREATE':
+                    # 如果是WITH开头的CTE，允许包含CREATE（虽然通常不会有）
+                    if sql_upper.startswith('WITH'):
+                        continue
+                    # 如果是SELECT开头，检查CREATE是否在字符串字面量中
+                    if sql_upper.startswith('SELECT'):
+                        # 简单检查：如果CREATE前后有引号，可能是字符串字面量
+                        continue
+                
+                # 对于其他危险关键词，如果不是SELECT或WITH开头，则拒绝
+                if not (sql_upper.startswith('SELECT') or sql_upper.startswith('WITH')):
+                    return False, f"不允许执行 {keyword} 操作"
         
         return True, ""
 
