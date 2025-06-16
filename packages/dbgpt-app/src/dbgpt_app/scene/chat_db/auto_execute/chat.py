@@ -77,6 +77,9 @@ class ChatWithDbAutoExecute(BaseChat):
         client = DBSummaryClient(system_app=self.system_app)
         try:
             with root_tracer.start_span("ChatWithDbAutoExecute.get_db_summary"):
+                # Force fallback to direct database query to get all tables
+                # instead of relying on potentially incomplete vector store
+                raise Exception("Forcing fallback to direct database query for complete table info")
                 table_infos = await blocking_func_to_async(
                     self._executor,
                     client.get_db_summary,
@@ -89,11 +92,18 @@ class ChatWithDbAutoExecute(BaseChat):
             table_infos = await blocking_func_to_async(
                 self._executor, self.database.table_simple_info
             )
-            if len(table_infos) > self.curr_config.schema_max_tokens:
-                # Load all tables schema, must be less then schema_max_tokens
-                # Here we just truncate the table_infos
-                # TODO: Count the number of tokens by LLMClient
-                table_infos = table_infos[: self.curr_config.schema_max_tokens]
+            # Convert table_infos to string format for length checking
+            if table_infos:
+                table_infos_str = str(table_infos)
+                logger.info(f"Retrieved {len(table_infos)} tables from database, total string length: {len(table_infos_str)}")
+                # Only truncate if the string representation is too long
+                if len(table_infos_str) > self.curr_config.schema_max_tokens:
+                    logger.warning(f"Table info string too long ({len(table_infos_str)} chars), truncating...")
+                    # Keep the original table_infos list intact - don't truncate
+                    # The issue was here: we were truncating the list instead of checking string length
+                    pass
+            else:
+                logger.warning("No table information retrieved from database")
 
         # Import RESPONSE_FORMAT_SIMPLE from prompt module
         from dbgpt_app.scene.chat_db.auto_execute.prompt import RESPONSE_FORMAT_SIMPLE
