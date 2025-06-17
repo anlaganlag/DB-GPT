@@ -27,6 +27,7 @@ services:
       - MYSQL_PORT=9030
       - MYSQL_DATABASE=orange
       - MYSQL_USER=ai_user1
+      - DISABLE_ALEMBIC_UPGRADE=true
     volumes:
       - ./configs:/app/configs
       - /data:/data

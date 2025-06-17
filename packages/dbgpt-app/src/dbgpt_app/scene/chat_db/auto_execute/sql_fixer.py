@@ -23,6 +23,7 @@ class SQLFixer:
             self._fix_invalid_joins,
             self._fix_group_by_issues,
             self._fix_format_function_compatibility,
+            self._fix_doris_function_compatibility,
         ]
     
     def fix_sql(self, sql: str) -> Tuple[str, List[str]]:
@@ -261,6 +262,35 @@ class SQLFixer:
             if temp_sql != fixed_sql:
                 fixes_applied.append("处理了剩余的FORMAT函数兼容性问题")
                 fixed_sql = temp_sql
+        
+        if fixes_applied:
+            return fixed_sql, "; ".join(fixes_applied)
+        
+        return sql, ""
+
+    def _fix_doris_function_compatibility(self, sql: str) -> Tuple[str, str]:
+        """
+        Fix Doris database function compatibility issues
+        修复Doris数据库函数兼容性问题
+        """
+        fixes_applied = []
+        fixed_sql = sql
+        
+        # Fix 1: DATE_ROUND function - not supported in Doris
+        # Pattern: DATE_ROUND(date_field, '%Y-%m-%d') -> date_field (if date_field is already date type)
+        date_round_pattern = r'DATE_ROUND\(([^,)]+),\s*[\'"]%Y-%m-%d[\'"]?\)'
+        
+        def fix_date_round(match):
+            field = match.group(1).strip()
+            return field  # Remove DATE_ROUND wrapper since field is already date type
+        
+        temp_sql = re.sub(date_round_pattern, fix_date_round, fixed_sql)
+        if temp_sql != fixed_sql:
+            fixes_applied.append("移除了Doris不支持的DATE_ROUND函数")
+            fixed_sql = temp_sql
+        
+        # Fix 2: Other potentially problematic functions for Doris
+        # Add more Doris-specific function fixes here as needed
         
         if fixes_applied:
             return fixed_sql, "; ".join(fixes_applied)

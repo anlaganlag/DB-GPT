@@ -49,10 +49,21 @@ echo "🌐 测试Web界面访问..."
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5670)
 if [ "$HTTP_CODE" = "200" ]; then
     echo "✅ Web界面正常访问 (HTTP $HTTP_CODE)"
+    
+    # 9. 自动检查和修复数据源配置
+    echo ""
+    echo "🔧 检查数据源配置..."
+    if [ -f "./init-datasource.sh" ]; then
+        ./init-datasource.sh
+    else
+        echo "⚠️  数据源初始化脚本不存在，请手动检查数据源配置"
+    fi
+    
     echo ""
     echo "🎉 DB-GPT 项目启动成功！"
     echo "📱 Web界面地址: http://localhost:5670"
     echo "🗄️  MySQL端口: localhost:3307"
+    echo "🔧 数据源: orange (Doris数据库)"
     echo ""
     echo "💡 现在可以在Web界面中进行逾期率分析查询了！"
 else

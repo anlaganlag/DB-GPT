@@ -9,10 +9,10 @@ encrypt_key = "your_secret_key"
 host = "0.0.0.0"
 port = 5670
 
-# DB-GPT系统数据库配置 - 使用SQLite存储系统数据，避免与Doris数据源冲突
+# DB-GPT系统数据库配置 - 使用内存SQLite数据库
 [service.web.database]
 type = "sqlite"
-path = "/app/pilot/data/dbgpt.db"
+path = ":memory:"
 
 [service.model.worker]
 host = "127.0.0.1"
@@ -42,16 +42,18 @@ name = "BAAI/bge-reranker-v2-m3"
 provider = "proxy/siliconflow"
 api_key = "sk-stwdcstqnkcztrsqsrmosrcpekiacrualyzzvsgfmzjvuurv"
 
-# 数据源配置
+# 数据源配置 - 自动加载到系统中
 [[datasources]]
-name = "overdue_analysis"
-type = "doris"
+name = "orange"  
+type = "mysql"
 host = "10.10.19.1"
 port = 9030
 database = "orange"
 user = "ai_user1"
 password = "Weshare@2025"
-description = "逾期率分析数据库(Apache Doris)"
+description = "逾期率分析数据库(Apache Doris伪装成MySQL)"
+# 强制启用表结构同步
+sync_schema = true
 # 添加额外配置以提高兼容性
 [datasources.ext_config]
 driver = "mysql+pymysql"
