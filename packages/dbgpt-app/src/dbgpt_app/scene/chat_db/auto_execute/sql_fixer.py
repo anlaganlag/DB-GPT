@@ -24,6 +24,7 @@ class SQLFixer:
             self._fix_group_by_issues,
             self._fix_format_function_compatibility,
             self._fix_doris_function_compatibility,
+            self._fix_field_name_mismatches,
         ]
     
     def fix_sql(self, sql: str) -> Tuple[str, List[str]]:
@@ -295,8 +296,8 @@ class SQLFixer:
         fixed_sql = sql
         
         # Fix 1: DATE_ROUND function - not supported in Doris
-        # Pattern: DATE_ROUND(date_field, '%Y-%m-%d') -> date_field (if date_field is already date type)
-        date_round_pattern = r'DATE_ROUND\(([^,)]+),\s*[\'"]%Y-%m-%d[\'"]?\)'
+        # Pattern: DATE_ROUND(date_field, format) -> appropriate replacement
+        date_round_pattern = r'DATE_ROUND\(([^,)]+),\s*[\'"]([^\'"]*)[\'"]\)'
         
         def fix_date_round(match):
             field = match.group(1).strip()
@@ -309,6 +310,25 @@ class SQLFixer:
         
         # Fix 2: Other potentially problematic functions for Doris
         # Add more Doris-specific function fixes here as needed
+        
+        if fixes_applied:
+            return fixed_sql, "; ".join(fixes_applied)
+        
+        return sql, ""
+
+    def _fix_field_name_mismatches(self, sql: str) -> Tuple[str, str]:
+        """
+        Fix field name mismatches, specifically the create_time vs createtime issue
+        修复字段名不匹配问题，特别是create_time与createtime的问题
+        """
+        fixes_applied = []
+        fixed_sql = sql
+        
+        # Fix 1: Replace create_time with createtime
+        create_time_pattern = r'create_time'
+        if re.search(create_time_pattern, fixed_sql):
+            fixed_sql = re.sub(create_time_pattern, 'createtime', fixed_sql)
+            fixes_applied.append("修复了create_time与createtime之间的不匹配")
         
         if fixes_applied:
             return fixed_sql, "; ".join(fixes_applied)
