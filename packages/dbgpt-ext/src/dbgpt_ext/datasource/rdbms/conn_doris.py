@@ -88,16 +88,20 @@ class DorisConnector(RDBMSConnector):
 
     def get_grants(self):
         """Get grants."""
-        with self.session_scope() as session:
-            cursor = session.execute(text("SHOW GRANTS"))
-            grants = cursor.fetchall()
-            if len(grants) == 0:
-                return []
-            if len(grants[0]) == 2:
-                grants_list = [x[1] for x in grants]
-            else:
-                grants_list = [x[2] for x in grants]
-            return grants_list
+        try:
+            with self.session_scope() as session:
+                cursor = session.execute(text("SHOW GRANTS"))
+                grants = cursor.fetchall()
+                if len(grants) == 0:
+                    return []
+                if len(grants[0]) == 2:
+                    grants_list = [x[1] for x in grants]
+                else:
+                    grants_list = [x[2] for x in grants]
+                return grants_list
+        except Exception:
+            # If SHOW GRANTS fails, return empty list
+            return []
 
     def _get_current_version(self):
         """Get database current version."""
@@ -111,13 +115,11 @@ class DorisConnector(RDBMSConnector):
         sql-reference/Show-Statements/SHOW-COLLATION/>`_
 
         """
-        with self.session_scope() as session:
-            cursor = session.execute(text("SHOW COLLATION"))
-            results = cursor.fetchall()
-            return "" if not results else results[0][0]
+        return "utf8_general_ci"
 
     def get_users(self):
         """Get user info."""
+        # Doris doesn't support mysql.user table, return empty list
         return []
 
     def get_columns(self, table_name: str) -> List[Dict]:

@@ -803,17 +803,33 @@ class RDBMSConnector(BaseConnector):
 
     def get_charset(self) -> str:
         """Get character_set."""
-        with self.session_scope() as session:
-            cursor = session.execute(text("SELECT @@character_set_database"))
-            character_set = cursor.fetchone()[0]  # type: ignore
-            return character_set
+        # Special handling for Doris database
+        if hasattr(self, 'db_type') and self.db_type == 'doris':
+            return "utf-8"
+        
+        try:
+            with self.session_scope() as session:
+                cursor = session.execute(text("SELECT @@character_set_database"))
+                character_set = cursor.fetchone()[0]  # type: ignore
+                return character_set
+        except Exception:
+            # Fallback for databases that don't support MySQL system variables
+            return "utf-8"
 
     def get_collation(self):
         """Get collation."""
-        with self.session_scope() as session:
-            cursor = session.execute(text("SELECT @@collation_database"))
-            collation = cursor.fetchone()[0]
-            return collation
+        # Special handling for Doris database
+        if hasattr(self, 'db_type') and self.db_type == 'doris':
+            return "utf8_general_ci"
+            
+        try:
+            with self.session_scope() as session:
+                cursor = session.execute(text("SELECT @@collation_database"))
+                collation = cursor.fetchone()[0]
+                return collation
+        except Exception:
+            # Fallback for databases that don't support MySQL system variables
+            return "utf8_general_ci"
 
     def get_grants(self):
         """Get grant info."""

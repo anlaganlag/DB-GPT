@@ -9,14 +9,10 @@ encrypt_key = "your_secret_key"
 host = "0.0.0.0"
 port = 5670
 
-# DB-GPT系统数据库配置
+# DB-GPT系统数据库配置 - 使用SQLite避免污染业务数据库
 [service.web.database]
-type = "mysql"
-host = "${env:MYSQL_HOST:-db}"
-port = "${env:MYSQL_PORT:-3306}"
-database = "${env:MYSQL_DATABASE:-dbgpt}"
-user = "${env:MYSQL_USER:-root}"
-password ="${env:MYSQL_PASSWORD:-aa123456}"
+type = "sqlite"
+path = "/app/pilot/data/dbgpt.db"
 
 [service.model.worker]
 host = "127.0.0.1"
@@ -49,10 +45,18 @@ api_key = "sk-stwdcstqnkcztrsqsrmosrcpekiacrualyzzvsgfmzjvuurv"
 # 数据源配置
 [[datasources]]
 name = "overdue_analysis"
-type = "mysql"
-host = "db"
-port = 3306
-database = "overdue_analysis"
-user = "root"
-password = "aa123456"
-description = "逾期率分析数据库" 
+type = "doris"
+host = "10.10.19.1"
+port = 9030
+database = "orange"
+user = "ai_user1"
+password = "Weshare@2025"
+description = "逾期率分析数据库(Apache Doris)"
+# 添加额外配置以提高兼容性
+[datasources.ext_config]
+driver = "mysql+pymysql"
+pool_size = 5
+max_overflow = 10
+pool_timeout = 30
+pool_recycle = 3600
+connect_args = { charset = "utf8mb4", autocommit = true } 
