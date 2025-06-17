@@ -514,23 +514,48 @@ class DbChatOutputParser(BaseOutputParser):
 
     def validate_sql_basic(self, sql: str) -> tuple[bool, str]:
         """
-        Basic SQL validation
-        基本的SQL验证
+        Basic SQL validation for security
+        基础SQL验证，确保安全性
         """
         if not sql or not sql.strip():
             return False, "SQL查询为空"
         
         sql_upper = sql.upper().strip()
         
-        # Check for dangerous operations (basic security)
-        dangerous_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER', 'CREATE', 'INSERT', 'UPDATE']
-        for keyword in dangerous_keywords:
-            if keyword in sql_upper and not sql_upper.startswith('SELECT'):
-                return False, f"不允许执行 {keyword} 操作"
-        
-        # Check for basic SQL structure
+        # Check if it's a valid SELECT or WITH statement
         if not sql_upper.startswith('SELECT') and not sql_upper.startswith('WITH'):
             return False, "只支持 SELECT 查询"
+        
+        # For WITH statements, we need more careful checking
+        if sql_upper.startswith('WITH'):
+            # Check if the main query (after WITH clause) is a SELECT
+            # Find the main SELECT statement after all WITH clauses
+            # Pattern to find the main SELECT after WITH clauses
+            # This is a simplified check - the main query should contain SELECT
+            if 'SELECT' not in sql_upper:
+                return False, "WITH语句必须包含SELECT查询"
+            
+            # Check for dangerous standalone operations in WITH context
+            # We allow CREATE within WITH clauses as they are temporary
+            dangerous_patterns = [
+                r'\bDROP\s+TABLE\b',
+                r'\bDELETE\s+FROM\b', 
+                r'\bTRUNCATE\s+TABLE\b',
+                r'\bALTER\s+TABLE\b',
+                r'\bINSERT\s+INTO\b',
+                r'\bUPDATE\s+\w+\s+SET\b'
+            ]
+            
+            for pattern in dangerous_patterns:
+                if re.search(pattern, sql_upper):
+                    operation = pattern.replace(r'\b', '').replace(r'\s+', ' ').replace(r'\w+', '').strip()
+                    return False, f"不允许执行 {operation} 操作"
+        else:
+            # For regular SELECT statements, check for dangerous operations
+            dangerous_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER', 'INSERT', 'UPDATE']
+            for keyword in dangerous_keywords:
+                if keyword in sql_upper:
+                    return False, f"不允许执行 {keyword} 操作"
         
         return True, ""
 
@@ -562,13 +587,19 @@ class DbChatOutputParser(BaseOutputParser):
                                  isinstance(prompt_response.analysis_report, dict) and
                                  any(prompt_response.analysis_report.values()))
             
-            # Only return direct_response if there's no SQL and no analysis report
+            # Check if we have meaningful SQL (not empty or whitespace)
+            has_meaningful_sql = (hasattr(prompt_response, 'sql') and 
+                                prompt_response.sql and 
+                                prompt_response.sql.strip())
+            
+            # Only return direct_response if there's no meaningful SQL and no analysis report
             if (hasattr(prompt_response, 'direct_response') and prompt_response.direct_response and
                 not has_analysis_report and 
-                (not hasattr(prompt_response, 'sql') or not prompt_response.sql)):
+                not has_meaningful_sql):
+                logger.info(f"Returning direct_response: {prompt_response.direct_response}")
                 return prompt_response.direct_response
             
-            if not hasattr(prompt_response, 'sql') or not prompt_response.sql:
+            if not has_meaningful_sql:
                 # If we have analysis report but no SQL, format the report without data
                 if has_analysis_report:
                     return self._format_analysis_report_only(prompt_response.analysis_report)
@@ -588,7 +619,7 @@ class DbChatOutputParser(BaseOutputParser):
 - 如果这是一个概念性问题，AI的回答可能已经包含了您需要的信息
 - 您可以尝试重新表述问题，明确指出需要查询哪些数据""".format(speak_content=speak if speak else "AI未提供具体回复")
                 
-                logger.info(f"No SQL generated, returning informative message")
+                logger.info(f"No meaningful SQL generated, returning informative message")
                 return error_msg
             
             original_sql = prompt_response.sql.strip()
