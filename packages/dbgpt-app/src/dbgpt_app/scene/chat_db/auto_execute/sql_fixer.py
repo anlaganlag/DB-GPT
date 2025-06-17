@@ -108,20 +108,38 @@ class SQLFixer:
         Fix issues with Chinese aliases in SQL
         修复SQL中中文别名的问题
         """
-        # Find Chinese aliases that aren't properly quoted
-        chinese_alias_pattern = r'AS\s+([\'"]?)([^\s\'"]*[\u4e00-\u9fff][^\s\'"]*)\1(?!\s*[\'"])'
+        fixes_applied = []
+        fixed_sql = sql
+        
+        # Fix 1: Remove incorrect double backticks and trailing comma-backtick
+        # Pattern: ``中文别名`,` -> `中文别名`
+        incorrect_pattern = r'``([^`]*[\u4e00-\u9fff][^`]*)\`,\`'
+        if re.search(incorrect_pattern, fixed_sql):
+            fixed_sql = re.sub(incorrect_pattern, r'`\1`', fixed_sql)
+            fixes_applied.append("修复了错误的双反引号格式")
+        
+        # Fix 2: Find Chinese aliases that aren't properly quoted
+        # Pattern: AS 中文别名 (without quotes) -> AS `中文别名`
+        chinese_alias_pattern = r'AS\s+([^`\s,]+[\u4e00-\u9fff][^`\s,]*)\s*(?=[,\s]|$)'
         
         def quote_chinese_alias(match):
-            quote_char = match.group(1)
-            alias = match.group(2)
-            if not quote_char:
-                return f'AS `{alias}`'
-            return match.group(0)
+            alias = match.group(1)
+            return f'AS `{alias}`'
         
-        fixed_sql = re.sub(chinese_alias_pattern, quote_chinese_alias, sql)
+        temp_sql = re.sub(chinese_alias_pattern, quote_chinese_alias, fixed_sql)
+        if temp_sql != fixed_sql:
+            fixes_applied.append("为中文字段别名添加了反引号")
+            fixed_sql = temp_sql
         
-        if fixed_sql != sql:
-            return fixed_sql, "为中文字段别名添加了反引号"
+        # Fix 3: Handle already quoted aliases that might have extra quotes
+        # Pattern: AS `中文别名`, -> AS `中文别名`,
+        extra_quote_pattern = r'AS\s+`([^`]*[\u4e00-\u9fff][^`]*)`\s*,\s*`'
+        if re.search(extra_quote_pattern, fixed_sql):
+            fixed_sql = re.sub(extra_quote_pattern, r'AS `\1`,', fixed_sql)
+            fixes_applied.append("清理了多余的引号")
+        
+        if fixes_applied:
+            return fixed_sql, "; ".join(fixes_applied)
         
         return sql, ""
     

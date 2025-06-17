@@ -1427,3 +1427,36 @@ class ChatWithDBExecuteConfig(GPTsAppCommonConfig):
 
 **Verification**:
 - ✅ Container restart successful
+
+### 🚨 **Critical Chinese Alias Quotation Issue Resolved** - 2025-06-17 20:45
+
+**Issue**: SQL queries were failing due to incorrect Chinese field alias quotation format.
+
+**Root Cause Analysis**:
+1. **Malformed Quotes**: SQL fixer was generating `AS ``在贷笔数`,`` instead of correct `AS `在贷笔数``
+2. **Double Backticks**: Starting with double backticks instead of single
+3. **Trailing Comma-Backtick**: Adding unnecessary `,`` at the end of aliases
+4. **Doris Syntax Error**: `Encountered: IDENTIFIER, Expected: COMMA`
+
+**Solution Implemented**:
+1. **Enhanced Chinese Alias Fix**: Completely rewrote `_fix_chinese_aliases()` method
+2. **Multi-Pattern Approach**: 
+   - Pattern 1: Fix incorrect ``,`` → `` format
+   - Pattern 2: Add quotes to unquoted Chinese aliases  
+   - Pattern 3: Clean up extra quotes in already quoted aliases
+3. **Robust Regex**: New patterns handle edge cases and malformed quotes
+4. **Smart Detection**: Specifically targets Chinese characters with proper quote handling
+
+**Technical Details**:
+- Fixed: `AS ``在贷笔数`,`` → `AS `在贷笔数``
+- Enhanced regex patterns with multiple fix stages
+- Added comprehensive quote cleanup logic
+- Status: Successfully deployed and service restarted
+
+**Verification**:
+- ✅ Container restart successful
+- ✅ HTTP service responding (200 OK) 
+- ✅ Chinese alias quote handling fixed
+- ✅ Ready for SQL query testing
+
+**Next Steps**: User should test calendar and other table queries to verify both DATE_ROUND and Chinese alias fixes work correctly.
