@@ -808,10 +808,10 @@ class RDBMSConnector(BaseConnector):
             return "utf-8"
         
         try:
-            with self.session_scope() as session:
-                cursor = session.execute(text("SELECT @@character_set_database"))
-                character_set = cursor.fetchone()[0]  # type: ignore
-                return character_set
+        with self.session_scope() as session:
+            cursor = session.execute(text("SELECT @@character_set_database"))
+            character_set = cursor.fetchone()[0]  # type: ignore
+            return character_set
         except Exception:
             # Fallback for databases that don't support MySQL system variables
             return "utf-8"
@@ -823,10 +823,10 @@ class RDBMSConnector(BaseConnector):
             return "utf8_general_ci"
             
         try:
-            with self.session_scope() as session:
-                cursor = session.execute(text("SELECT @@collation_database"))
-                collation = cursor.fetchone()[0]
-                return collation
+        with self.session_scope() as session:
+            cursor = session.execute(text("SELECT @@collation_database"))
+            collation = cursor.fetchone()[0]
+            return collation
         except Exception:
             # Fallback for databases that don't support MySQL system variables
             return "utf8_general_ci"
