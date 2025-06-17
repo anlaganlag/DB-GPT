@@ -2,7 +2,7 @@
 # SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY} docker compose up -d
 services:
   db:
-    image: mysql/mysql-server
+    image: docker.xuanyuan.me/mysql/mysql-server
     environment:
       MYSQL_USER: 'user'
       MYSQL_PASSWORD: 'password'
@@ -18,15 +18,15 @@ services:
     networks:
       - dbgptnet
   webserver:
-    image: eosphorosai/dbgpt-openai:latest
+    image: docker.xuanyuan.me/eosphorosai/dbgpt-openai:latest
     command: dbgpt start webserver --config /app/configs/dbgpt-overdue-analysis.toml
     environment:
       - SILICONFLOW_API_KEY=sk-stwdcstqnkcztrsqsrmosrcpekiacrualyzzvsgfmzjvuurv
-      - MYSQL_PASSWORD=aa123456
-      - MYSQL_HOST=db
-      - MYSQL_PORT=3306
-      - MYSQL_DATABASE=dbgpt
-      - MYSQL_USER=root
+      - MYSQL_PASSWORD=Weshare@2025
+      - MYSQL_HOST=10.10.19.1
+      - MYSQL_PORT=9030
+      - MYSQL_DATABASE=orange
+      - MYSQL_USER=ai_user1
     volumes:
       - ./configs:/app/configs
       - /data:/data

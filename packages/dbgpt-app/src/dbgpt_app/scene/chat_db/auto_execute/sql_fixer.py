@@ -22,6 +22,7 @@ class SQLFixer:
             self._fix_missing_table_aliases,
             self._fix_invalid_joins,
             self._fix_group_by_issues,
+            self._fix_format_function_compatibility,
         ]
     
     def fix_sql(self, sql: str) -> Tuple[str, List[str]]:
@@ -205,6 +206,61 @@ class SQLFixer:
                     if temp_sql != fixed_sql:
                         fixes_applied.append("为DATE_FORMAT查询添加了聚合函数以兼容ONLY_FULL_GROUP_BY")
                         fixed_sql = temp_sql
+        
+        if fixes_applied:
+            return fixed_sql, "; ".join(fixes_applied)
+        
+        return sql, ""
+
+    def _fix_format_function_compatibility(self, sql: str) -> Tuple[str, str]:
+        """
+        Fix FORMAT function compatibility issues
+        修复FORMAT函数兼容性问题
+        """
+        fixes_applied = []
+        fixed_sql = sql
+        
+        # Pattern 1: FORMAT(numeric_value, 2) -> ROUND(numeric_value, 2)
+        format_numeric_pattern = r'FORMAT\(([^,)]+),\s*(\d+)\)'
+        
+        def fix_numeric_format(match):
+            value = match.group(1)
+            decimals = match.group(2)
+            return f'ROUND({value}, {decimals})'
+        
+        temp_sql = re.sub(format_numeric_pattern, fix_numeric_format, fixed_sql)
+        if temp_sql != fixed_sql:
+            fixes_applied.append("将FORMAT函数替换为ROUND函数")
+            fixed_sql = temp_sql
+        
+        # Pattern 2: CONCAT('¥', FORMAT(...)) -> CONCAT('¥', ROUND(...))
+        # This should already be handled by the above pattern
+        
+        # Pattern 3: More complex FORMAT patterns that might need specific handling
+        # Check for any remaining FORMAT functions that might need different treatment
+        remaining_format = re.search(r'FORMAT\([^)]+\)', fixed_sql)
+        if remaining_format:
+            # For any remaining FORMAT functions, try to convert them
+            format_pattern = r'FORMAT\(([^)]+)\)'
+            def fix_remaining_format(match):
+                content = match.group(1)
+                # If it's a simple numeric format, default to 2 decimal places
+                if ',' not in content:
+                    return f'ROUND({content}, 2)'
+                else:
+                    # Split by comma and handle
+                    parts = content.split(',')
+                    if len(parts) == 2:
+                        value = parts[0].strip()
+                        decimals = parts[1].strip()
+                        return f'ROUND({value}, {decimals})'
+                # Fallback: just remove FORMAT and keep the content
+                return content
+            
+            temp_sql = re.sub(format_pattern, fix_remaining_format, fixed_sql)
+            if temp_sql != fixed_sql:
+                fixes_applied.append("处理了剩余的FORMAT函数兼容性问题")
+                fixed_sql = temp_sql
         
         if fixes_applied:
             return fixed_sql, "; ".join(fixes_applied)

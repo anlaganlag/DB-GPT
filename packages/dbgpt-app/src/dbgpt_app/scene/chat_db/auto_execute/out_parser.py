@@ -17,6 +17,7 @@ from dbgpt.util.json_utils import serialize
 
 from ...exceptions import AppActionException
 from .sql_fixer import create_sql_fixer
+from .data_driven_analyzer import DataDrivenAnalyzer
 
 CFG = Config()
 
@@ -236,6 +237,9 @@ class DbChatOutputParser(BaseOutputParser):
         # Initialize time and report fixer
         self.time_report_fixer = TimeAndReportFixer()
         self._current_user_input = ""  # Store current user input for analysis
+        
+        # Initialize data-driven analyzer
+        self.data_driven_analyzer = DataDrivenAnalyzer()
 
     def _initialize_sql_validator(self):
         """Initialize SQL validator with the provided connector."""
@@ -641,7 +645,7 @@ class DbChatOutputParser(BaseOutputParser):
             # Basic SQL validation
             is_valid, validation_error = self.validate_sql_basic(sql_to_execute)
             if not is_valid:
-                # 🚨 改进：SQL验证失败时展示完整信息
+                # 🚨 改进：SQL验证失败时展示完整信息，但不生成分析报告
                 error_response = f"""📋 **SQL验证失败**
 
 🔍 **验证错误**: {validation_error}
@@ -675,10 +679,16 @@ class DbChatOutputParser(BaseOutputParser):
             try:
                 result = data(sql_to_execute)
                 
+                # 🎯 关键改进：只有在SQL成功执行后才生成数据驱动分析报告
+                logger.info("SQL executed successfully, checking if data-driven analysis is needed")
+                
                 if result is None or result.empty:
-                    # Even with empty results, show SQL and analysis report if available
+                    # 🚨 按要求：SQL执行失败（空结果），不生成分析报告
+                    logger.info("SQL execution returned empty result, not generating analysis report as requested")
+                    
+                    # Even with empty results, show SQL but NO analysis report
                     if mode == "simple":
-                        # Simple mode: Return Markdown format
+                        # Simple mode: Return Markdown format without analysis report
                         empty_result_msg = f"""📊 **查询执行成功**
 
 ✅ **SQL执行状态**: 成功执行，但没有找到匹配的数据
@@ -696,17 +706,49 @@ class DbChatOutputParser(BaseOutputParser):
                         empty_result_msg += "\n```\n\n"
                         empty_result_msg += "💡 **SQL说明**: 以上是执行的SQL语句，虽然没有返回数据，但SQL执行成功\n"
                         
-                        # Add analysis report if available
-                        if has_analysis_report:
-                            empty_result_msg += "\n\n" + "="*60 + "\n"
-                            empty_result_msg += "📋 **分析报告** (基于查询意图)\n"
-                            empty_result_msg += "="*60 + "\n\n"
-                            empty_result_msg += self._format_analysis_report_only(prompt_response.analysis_report)
+                        # 🚨 按要求：不添加分析报告部分
                         
                         return empty_result_msg + fix_info
                     else:
-                        # Enhanced mode: Generate chart-view format
+                        # Enhanced mode: Generate chart-view format without analysis report
                         return self._generate_chart_view_format(result, sql_to_execute, prompt_response, fix_info)
+                
+                # 🎯 核心改进：只有在SQL成功执行且有数据时才生成数据驱动的分析报告
+                logger.info(f"SQL execution successful with {len(result)} records")
+                
+                # Check if user requested analysis
+                should_generate_analysis = self.data_driven_analyzer.should_generate_analysis_report(self._current_user_input)
+                logger.info(f"Should generate analysis report: {should_generate_analysis} (user input: '{self._current_user_input}')")
+                
+                if should_generate_analysis:
+                    logger.info("Generating data-driven analysis report based on SQL execution results")
+                    try:
+                        # Generate data-driven analysis report
+                        data_driven_report = self.data_driven_analyzer.generate_data_driven_report(
+                            result, self._current_user_input, sql_to_execute
+                        )
+                        
+                        # Replace the existing analysis report with data-driven one
+                        if hasattr(prompt_response, 'analysis_report'):
+                            prompt_response = prompt_response._replace(analysis_report=data_driven_report)
+                        else:
+                            # Create new SqlAction with data-driven report
+                            prompt_response = SqlAction(
+                                sql=prompt_response.sql if hasattr(prompt_response, 'sql') else sql_to_execute,
+                                thoughts=prompt_response.thoughts if hasattr(prompt_response, 'thoughts') else {},
+                                display=prompt_response.display if hasattr(prompt_response, 'display') else "",
+                                direct_response=prompt_response.direct_response if hasattr(prompt_response, 'direct_response') else "",
+                                missing_info=prompt_response.missing_info if hasattr(prompt_response, 'missing_info') else "",
+                                analysis_report=data_driven_report
+                            )
+                        
+                        logger.info(f"Successfully generated data-driven analysis report with {len(result)} records")
+                        
+                    except Exception as analysis_error:
+                        logger.error(f"Failed to generate data-driven analysis report: {analysis_error}")
+                        # 🚨 按要求：分析报告生成失败时，清除分析报告
+                        if hasattr(prompt_response, 'analysis_report'):
+                            prompt_response = prompt_response._replace(analysis_report={})
                 
                 # Format result for display based on mode
                 if mode == "simple":
@@ -718,67 +760,32 @@ class DbChatOutputParser(BaseOutputParser):
                     return self._generate_chart_view_format(result, sql_to_execute, prompt_response, fix_info)
                 
             except (SQLAlchemyError, pymysql.Error, Exception) as sql_error:
-                # If fixed SQL still fails, try the original SQL
-                if fixes_applied:
-                    logger.info("Fixed SQL failed, trying original SQL...")
-                    try:
-                        result = data(original_sql)
-                        if result is not None and not result.empty:
-                            if mode == "simple":
-                                view_content = self._format_result_for_display(result, prompt_response)
-                                return view_content + "\n⚠️ 注意: 使用了原始SQL查询（自动修复失败）"
-                            else:
-                                return self._generate_chart_view_format(result, original_sql, prompt_response, "\n⚠️ 注意: 使用了原始SQL查询（自动修复失败）")
-                    except Exception as fallback_error:
-                        logger.info(f"Original SQL also failed: {fallback_error}")
-                        # Continue with comprehensive error handling below
+                # 🚨 按要求：SQL执行失败时，不生成分析报告
+                logger.error(f"SQL execution failed: {sql_error}")
                 
-                # 🚨 改进：提供最详细的错误信息，包括SQL内容
-                user_friendly_error = self.format_sql_error_for_user(sql_error, sql_to_execute)
-                technical_error = str(sql_error)
-                
-                logger.error(f"SQL execution failed: {technical_error}")
-                logger.error(f"SQL that failed: {sql_to_execute}")
-                
-                # Return comprehensive error information with SQL display
-                error_response = f"""📋 **数据库查询详细信息**
+                # Format user-friendly error message without analysis report
+                error_response = f"""📋 **SQL执行失败**
 
-❌ **执行状态**: 查询失败
-
-🔍 **错误原因**: {user_friendly_error}
+❌ **执行错误**: {self.format_sql_error_for_user(sql_error, sql_to_execute)}
 
 📝 **执行的SQL**:
 ```sql
 {sql_to_execute}
 ```"""
-
-                # Show original SQL if it was modified
-                if fixes_applied and sql_to_execute != original_sql:
+                
+                if fixes_applied:
                     error_response += f"""
 
-📝 **原始SQL**:
-```sql
-{original_sql}
-```
-
-🔧 **已尝试的修复**: {', '.join(fixes_applied)}"""
-
+🔧 **应用的修复**: {', '.join(fixes_applied)}"""
+                
                 error_response += f"""
 
-🔧 **技术详情**: {technical_error}
+💡 **技术细节**: {str(sql_error)}
 
-💡 **建议**: 
+🔧 **建议**: 
 - 检查表名和字段名是否正确
-- 确认数据库中是否存在相关数据
-- 尝试简化查询条件
-- 检查SQL语法是否符合MySQL标准"""
-
-                # Add analysis report if available, even when SQL fails
-                if has_analysis_report:
-                    error_response += "\n\n" + "="*60 + "\n"
-                    error_response += "📋 **AI分析报告** (基于查询意图)\n"
-                    error_response += "="*60 + "\n\n"
-                    error_response += self._format_analysis_report_only(prompt_response.analysis_report)
+- 确认数据库连接是否正常
+- 验证SQL语法是否符合数据库要求"""
                 
                 return error_response + fix_info
                 
