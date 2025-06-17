@@ -582,11 +582,11 @@ class DbChatOutputParser(BaseOutputParser):
         
         try:
             # Check if we have analysis report - if so, we should execute SQL and format the full report
-            has_analysis_report = (hasattr(prompt_response, 'analysis_report') and 
-                                 prompt_response.analysis_report and 
+            has_analysis_report = (hasattr(prompt_response, 'analysis_report') and
+                                 prompt_response.analysis_report and
                                  isinstance(prompt_response.analysis_report, dict) and
                                  any(prompt_response.analysis_report.values()))
-            
+
             # Check if we have meaningful SQL (not empty or whitespace)
             has_meaningful_sql = (hasattr(prompt_response, 'sql') and 
                                 prompt_response.sql and 
@@ -603,7 +603,7 @@ class DbChatOutputParser(BaseOutputParser):
                 # If we have analysis report but no SQL, format the report without data
                 if has_analysis_report:
                     return self._format_analysis_report_only(prompt_response.analysis_report)
-                
+
                 # 🚨 改进：即使没有SQL也不显示通用错误，而是提供有用的信息
                 error_msg = """📋 **查询分析结果**
 
@@ -618,7 +618,7 @@ class DbChatOutputParser(BaseOutputParser):
 - 如果您需要数据查询，请尝试更具体地描述您的需求
 - 如果这是一个概念性问题，AI的回答可能已经包含了您需要的信息
 - 您可以尝试重新表述问题，明确指出需要查询哪些数据""".format(speak_content=speak if speak else "AI未提供具体回复")
-                
+
                 logger.info(f"No meaningful SQL generated, returning informative message")
                 return error_msg
             

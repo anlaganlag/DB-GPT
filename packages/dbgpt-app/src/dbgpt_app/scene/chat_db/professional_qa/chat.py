@@ -1,4 +1,6 @@
 from typing import Dict, Type
+import json
+import asyncio
 
 from dbgpt.component import SystemApp, logger
 from dbgpt.util.executor_utils import blocking_func_to_async
@@ -7,6 +9,15 @@ from dbgpt_app.scene import BaseChat, ChatScene
 from dbgpt_app.scene.base_chat import ChatParam
 from dbgpt_app.scene.chat_db.professional_qa.config import ChatWithDBQAConfig
 from dbgpt_serve.datasource.manages import ConnectorManager
+
+# 导入新的验证和增强组件
+try:
+    from dbgpt_app.scene.chat_db.auto_execute.table_schema_validator import TableSchemaValidator
+    from dbgpt_app.scene.chat_db.auto_execute.enhanced_prompt_manager import EnhancedPromptManager
+    VALIDATION_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Schema validation components not available: {e}")
+    VALIDATION_AVAILABLE = False
 
 
 class ChatWithDbQA(BaseChat):
@@ -49,6 +60,19 @@ class ChatWithDbQA(BaseChat):
             )
             self.top_k = self.curr_config.schema_retrieve_top_k
 
+        # 初始化表结构验证器和增强prompt管理器
+        self.schema_validator = None
+        self.prompt_manager = None
+        if VALIDATION_AVAILABLE and self.database:
+            try:
+                self.schema_validator = TableSchemaValidator(self.database)
+                self.prompt_manager = EnhancedPromptManager(self.schema_validator)
+                logger.info("Schema validation and enhanced prompts enabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize schema validator: {e}")
+                self.schema_validator = None
+                self.prompt_manager = None
+
     @trace()
     async def generate_input_values(self) -> Dict:
         try:
@@ -57,6 +81,15 @@ class ChatWithDbQA(BaseChat):
             raise ValueError("Could not import DBSummaryClient. ")
         user_input = self.current_user_input.last_text
         table_infos = None
+        
+        # 加载表结构信息用于验证
+        if self.schema_validator and not self.schema_validator.cached_schemas:
+            try:
+                await self.schema_validator.load_table_schemas("orange")
+                logger.info("Table schemas loaded for validation")
+            except Exception as e:
+                logger.warning(f"Failed to load table schemas: {e}")
+        
         if self.db_name:
             client = DBSummaryClient(system_app=self.system_app)
             try:
@@ -78,8 +111,18 @@ class ChatWithDbQA(BaseChat):
                     # TODO: Count the number of tokens by LLMClient
                     table_infos = table_infos[: self.curr_config.schema_max_tokens]
 
+        # 如果启用了增强prompt，使用增强的prompt
+        enhanced_input = user_input
+        if self.prompt_manager and self.schema_validator and self.schema_validator.cached_schemas:
+            try:
+                enhanced_input = self.prompt_manager.get_enhanced_sql_prompt(user_input, "orange")
+                logger.info("Using enhanced prompt with schema information")
+            except Exception as e:
+                logger.warning(f"Failed to generate enhanced prompt: {e}")
+                enhanced_input = user_input
+
         input_values = {
-            "input": user_input,
+            "input": enhanced_input,
             "table_info": table_infos,
         }
         return input_values
