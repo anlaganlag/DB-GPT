@@ -1,0 +1,59 @@
+# DB-GPT 定制版本 - 包含逾期率分析优化和数据驱动分析功能
+# Custom DB-GPT with Overdue Rate Analysis Optimization and Data-Driven Analysis Features
+
+FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim
+
+LABEL maintainer="weshare" \
+      version="1.0.0" \
+      description="DB-GPT Custom Version with Enhanced SQL Fixing and Data-Driven Analysis"
+
+# 设置工作目录
+WORKDIR /app
+
+# 设置环境变量
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+# 更换为国内镜像源
+RUN sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/debian.sources && \
+    sed -i 's/security.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/debian.sources
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    curl \
+    wget \
+    vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制项目文件
+COPY . /app/
+
+# 配置pip国内镜像源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+
+# 安装Python依赖
+RUN pip install --upgrade pip && \
+    pip install -e . && \
+    pip install pymysql pandas numpy sqlparse
+
+# 创建必要的目录
+RUN mkdir -p /app/pilot/data \
+             /app/pilot/message \
+             /app/logs \
+             /data/models
+
+# 设置权限
+RUN chmod +x /app/scripts/run_dbgpt.sh 2>/dev/null || true
+
+# 暴露端口
+EXPOSE 5670
+
+# 设置入口点
+ENTRYPOINT ["python", "-m", "dbgpt"]
+CMD ["start", "webserver", "--config", "/app/configs/dbgpt-overdue-analysis.toml"] 

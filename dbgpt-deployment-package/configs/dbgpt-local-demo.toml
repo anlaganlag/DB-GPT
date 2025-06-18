@@ -1,0 +1,44 @@
+[system]
+language = "zh"
+api_keys = []
+encrypt_key = "your_secret_key"
+
+[service.web]
+host = "0.0.0.0"
+port = 5670
+
+[service.web.database]
+type = "mysql"
+host = "db"
+port = 3306
+database = "dbgpt"
+user = "root"
+password = "aa123456"
+
+[service.model.worker]
+host = "127.0.0.1"
+
+[rag.storage]
+[rag.storage.vector]
+type = "chroma"
+persist_path = "pilot/data"
+
+# 使用本地模型配置
+[models]
+[[models.llms]]
+name = "chatglm3-6b"
+provider = "local"
+model_path = "/app/models/chatglm3-6b"
+device = "cpu"
+max_tokens = 2048
+
+# 数据源配置
+[[datasources]]
+name = "overdue_analysis"
+type = "mysql"
+host = "db"
+port = 3306
+database = "overdue_analysis"
+user = "root"
+password = "aa123456"
+description = "逾期率分析数据库" 

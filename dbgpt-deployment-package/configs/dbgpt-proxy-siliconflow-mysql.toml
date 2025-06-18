@@ -9,10 +9,13 @@ encrypt_key = "your_secret_key"
 host = "0.0.0.0"
 port = 5670
 
-# DB-GPT系统数据库配置 - 使用SQLite避免权限问题
 [service.web.database]
-type = "sqlite"
-path = "pilot/meta_data/dbgpt.db"
+type = "mysql"
+host = "${env:MYSQL_HOST:-127.0.0.1}"
+port = "${env:MYSQL_PORT:-3306}"
+database = "${env:MYSQL_DATABASE:-dbgpt}"
+user = "${env:MYSQL_USER:-root}"
+password ="${env:MYSQL_PASSWORD:-aa123456}"
 
 [service.model.worker]
 host = "127.0.0.1"
@@ -28,7 +31,9 @@ persist_path = "pilot/data"
 name = "Qwen/Qwen2.5-Coder-32B-Instruct"
 provider = "proxy/siliconflow"
 api_key = "sk-stwdcstqnkcztrsqsrmosrcpekiacrualyzzvsgfmzjvuurv"
+temperature = 0.3
 max_tokens = 2048
+top_p = 0.9
 context_length = 4096
 
 [[models.embeddings]]
@@ -41,14 +46,3 @@ type = "reranker"
 name = "BAAI/bge-reranker-v2-m3"
 provider = "proxy/siliconflow"
 api_key = "sk-stwdcstqnkcztrsqsrmosrcpekiacrualyzzvsgfmzjvuurv"
-
-# 数据源配置
-[[datasources]]
-name = "overdue_analysis"
-type = "mysql"
-host = "10.10.19.1"
-port = 9030
-database = "test"
-user = "ai_user1"
-password = "Weshare@2025"
-description = "逾期率分析数据库"

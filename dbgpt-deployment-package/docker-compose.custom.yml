@@ -1,0 +1,98 @@
+# DB-GPT 定制版本 Docker Compose 配置
+# 适用于完全独立的部署，包含所有必要的服务
+version: '3.8'
+
+services:
+  # MySQL 数据库 (用于 DB-GPT 系统数据)
+  dbgpt-mysql:
+    image: mysql/mysql-server:8.0
+    container_name: dbgpt-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 'dbgpt_root_123'
+      MYSQL_DATABASE: 'dbgpt'
+      MYSQL_USER: 'dbgpt_user'
+      MYSQL_PASSWORD: 'dbgpt_pass_123'
+    ports:
+      - "3307:3306"
+    volumes:
+      - dbgpt_mysql_data:/var/lib/mysql
+      - ./assets/schema/dbgpt.sql:/docker-entrypoint-initdb.d/01-dbgpt.sql:ro
+    restart: unless-stopped
+    networks:
+      - dbgpt_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 10s
+      retries: 5
+      interval: 30s
+
+  # DB-GPT 定制版本服务
+  dbgpt-webserver:
+    image: weshare/dbgpt-custom:latest
+    container_name: dbgpt-webserver
+    environment:
+      # SiliconFlow API Key (需要替换为实际的key)
+      - SILICONFLOW_API_KEY=${SILICONFLOW_API_KEY:-sk-your-siliconflow-api-key}
+      
+      # DB-GPT 系统数据库配置
+      - MYSQL_PASSWORD=dbgpt_pass_123
+      - MYSQL_HOST=dbgpt-mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=dbgpt
+      - MYSQL_USER=dbgpt_user
+      
+      # 业务数据库配置 (Doris/MySQL)
+      - BUSINESS_MYSQL_HOST=${BUSINESS_MYSQL_HOST:-10.10.19.1}
+      - BUSINESS_MYSQL_PORT=${BUSINESS_MYSQL_PORT:-9030}
+      - BUSINESS_MYSQL_DATABASE=${BUSINESS_MYSQL_DATABASE:-orange}
+      - BUSINESS_MYSQL_USER=${BUSINESS_MYSQL_USER:-ai_user1}
+      - BUSINESS_MYSQL_PASSWORD=${BUSINESS_MYSQL_PASSWORD:-Weshare@2025}
+      
+      # 其他配置
+      - DISABLE_ALEMBIC_UPGRADE=false
+      - PYTHONPATH=/app
+      - DBGPT_LANG=zh
+    ports:
+      - "5670:5670"
+    volumes:
+      # 持久化数据
+      - dbgpt_data:/app/pilot/data
+      - dbgpt_message:/app/pilot/message
+      - dbgpt_logs:/app/logs
+      
+      # 模型存储 (可选，如果需要本地模型)
+      - ${MODELS_PATH:-./models}:/app/models
+      
+      # 配置文件覆盖 (可选)
+      - ./configs/dbgpt-overdue-analysis.toml:/app/configs/dbgpt-overdue-analysis.toml:ro
+    depends_on:
+      dbgpt-mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dbgpt_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5670/api/health"]
+      timeout: 10s
+      retries: 5
+      interval: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  dbgpt_mysql_data:
+    driver: local
+  dbgpt_data:
+    driver: local
+  dbgpt_message:
+    driver: local
+  dbgpt_logs:
+    driver: local
+
+networks:
+  dbgpt_network:
+    driver: bridge
+    name: dbgpt_custom_network 

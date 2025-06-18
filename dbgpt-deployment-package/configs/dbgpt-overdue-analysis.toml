@@ -9,10 +9,10 @@ encrypt_key = "your_secret_key"
 host = "0.0.0.0"
 port = 5670
 
-# DB-GPT系统数据库配置 - 使用SQLite避免权限问题
+# DB-GPT系统数据库配置 - 使用内存SQLite数据库
 [service.web.database]
 type = "sqlite"
-path = "pilot/meta_data/dbgpt.db"
+path = ":memory:"
 
 [service.model.worker]
 host = "127.0.0.1"
@@ -42,13 +42,23 @@ name = "BAAI/bge-reranker-v2-m3"
 provider = "proxy/siliconflow"
 api_key = "sk-stwdcstqnkcztrsqsrmosrcpekiacrualyzzvsgfmzjvuurv"
 
-# 数据源配置
+# 数据源配置 - 自动加载到系统中
 [[datasources]]
-name = "overdue_analysis"
+name = "orange"  
 type = "mysql"
 host = "10.10.19.1"
 port = 9030
-database = "test"
+database = "orange"
 user = "ai_user1"
 password = "Weshare@2025"
-description = "逾期率分析数据库"
+description = "逾期率分析数据库(Apache Doris伪装成MySQL)"
+# 强制启用表结构同步
+sync_schema = true
+# 添加额外配置以提高兼容性
+[datasources.ext_config]
+driver = "mysql+pymysql"
+pool_size = 5
+max_overflow = 10
+pool_timeout = 30
+pool_recycle = 3600
+connect_args = { charset = "utf8mb4", autocommit = true } 

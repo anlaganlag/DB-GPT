@@ -1,0 +1,1 @@
+docker run -d --name dbgpt-custom -p 5670:5670 -e SILICONFLOW_API_KEY=sk-stwdcstqnkcztrsqsrmosrcpekiacrualyzzvsgfmzjvuurv weshare/dbgpt-custom:1.0.0
